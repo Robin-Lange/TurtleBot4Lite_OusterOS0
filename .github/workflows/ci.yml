@@ -1,0 +1,81 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Code Quality and Linting
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Linting Tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: Run Flake8 Code Style Check
+        run: |
+          flake8 --config .flake8 ros2_ws/src/
+
+      - name: Validate XML and Configuration Syntax
+        run: |
+          python3 -c "import xml.etree.ElementTree as ET; ET.parse('ros2_ws/src/tb4_ouster_autonomy/package.xml'); print('package.xml is valid XML')"
+          python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/launch/*.py
+          python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/tb4_ouster_autonomy/*.py
+          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('ros2_ws/src/tb4_ouster_autonomy/config/*.yaml')]; print('YAML configs valid')"
+
+  build-and-test:
+    name: ROS 2 Humble Build & Test
+    runs-on: ubuntu-22.04
+    container:
+      image: ros:humble-ros-base-jammy
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install System and ROS Build Dependencies
+        shell: bash
+        run: |
+          apt-get update
+          apt-get install -y \
+            python3-colcon-common-extensions \
+            python3-pytest \
+            python3-pip
+          rosdep update
+          rosdep install --from-paths ros2_ws/src --ignore-src -y -r --rosdistro humble
+
+      - name: Colcon Build
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          cd ros2_ws
+          colcon build --symlink-install
+
+      - name: Colcon Test
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source ros2_ws/install/local_setup.bash
+          cd ros2_ws
+          PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
+          colcon test-result --all --verbose
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ros2_ws/build/tb4_ouster_autonomy/pytest.xml
+          if-no-files-found: ignore
