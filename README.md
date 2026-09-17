@@ -97,46 +97,71 @@ ros2_ws/src/tb4_ouster_autonomy/
 ├── setup.py
 ├── setup.cfg
 ├── resource/tb4_ouster_autonomy
+├── config/
+│   ├── collision_monitor_params.yaml
+│   ├── nav2_params.yaml
+│   └── slam_toolbox_params.yaml
+├── launch/
+│   ├── mount_tf.launch.py
+│   ├── perception.launch.py
+│   ├── safety.launch.py
+│   ├── mapping.launch.py
+│   └── robot.launch.py
+├── rviz/
+│   └── view_robot.rviz
 ├── tb4_ouster_autonomy/
 │   ├── __init__.py
+│   ├── cloud_filter.py
+│   ├── overnight_monitor.py
+│   ├── safety_authority_gate.py
 │   └── stationary_diagnostics.py
-└── launch/mount_tf.launch.py
+└── test/
+    ├── test_cloud_filter.py
+    └── test_safety_authority_gate.py
 ```
 
-The resource marker registers the package; `setup.py` installs that marker, the manifest, launch file and console entry point; `setup.cfg` places executables where `ros2 run` expects them. `package.xml` declares direct runtime dependencies and exports the `ament_python` build type. No CMakeLists.txt or extra framework is needed. Add dependencies and install rules for config/RViz files when those files are implemented.
+### Building and Testing
 
-Maintainer metadata now agrees between `setup.py` and `package.xml`. The existing `Unspecified` license remains an owner decision before redistribution/release, not a development blocker; the tutorial's sample license is not automatically this project's license. There is no automated navigation/integration test suite yet.
-
-In a fresh build terminal with only the underlay sourced:
+In a fresh terminal with ROS 2 Humble sourced:
 
 ```bash
 source /opt/ros/humble/setup.bash
 cd /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws
-rosdep check --from-paths src --ignore-src --rosdistro humble
 colcon build --symlink-install
+source install/local_setup.bash
+PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
+colcon test-result --all --verbose
 ```
 
-In a fresh terminal, source the underlay and overlay before running a read-only observation:
+All 14 unit and integration tests execute and pass offline in an isolated ROS domain, validating deadman switch requirements, sensor timeout watchdogs, hazard detection latches, operator stops, non-holonomic velocity clamping, and point-cloud envelope filtering.
+
+### CI/CD Pipeline
+
+Continuous Integration is configured via GitHub Actions in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). The pipeline automatically runs on every push and pull request to `main`:
+1. **Linting & Syntax Validation:** Runs `flake8` under [`.flake8`](.flake8), validates XML manifests, compiles Python launch and node scripts, and validates YAML configuration syntax.
+2. **Containerized Build & Test:** Executes inside official `ros:humble-ros-base-jammy`, installs dependencies via `rosdep`, builds with `colcon`, runs all 14 tests, and archives JUnit XML test results.
+
+### Operating Entry Points
+
+The unified launch entry point is `launch/robot.launch.py`:
 
 ```bash
-source /opt/ros/humble/setup.bash
-source /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install/local_setup.bash
-export ROS_DOMAIN_ID=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-unset FASTRTPS_DEFAULT_PROFILES_FILE
-ros2 run tb4_ouster_autonomy stationary_diagnostics --seconds 10 --topics /odom,/tf,/dock_status
+# 1. Read-Only Stationary Diagnostics (safe for docked charging robot)
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=diagnose rviz:=true
+
+# 2. Manual SLAM Mapping (requires active deadman switch on /teleop/deadman)
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=true
+
+# 3. Supervised Goal Navigation
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true
 ```
 
-To display the provisional mount in RViz during a **stationary** sensor session, start `ros2 launch tb4_ouster_autonomy mount_tf.launch.py` in another sourced terminal. Stop any other publisher of `base_link -> os_sensor` first. The transform launch publishes TF only; it does not start the sensor or move the robot.
+### Safety Authority Architecture
 
-For package inspection without starting a node or publishing TF:
+All velocity commands are mediated by `tb4_ouster_autonomy/safety_authority_gate.py` and finalized through `nav2_collision_monitor`:
+- Manual teleop commands are sent to `/teleop/cmd_vel` with a required deadman heartbeat on `/teleop/deadman`.
+- Stale commands (>0.20 s), stale sensor telemetry (>0.25 s), or deadman heartbeat loss (>0.50 s) instantly zero the safe velocity output `/cmd_vel_safe`.
+- Hardware bumper, cliff, or wheel-drop events on `/hazard_detection` trigger a latched emergency stop requiring physical clearance and an explicit `/safety/resume` service call.
+- `nav2_collision_monitor` is the sole authorized writer to the base `/cmd_vel` topic, evaluating real-time proximity on `/ouster/cloud_filtered`.
 
-```bash
-ros2 pkg prefix tb4_ouster_autonomy
-ros2 pkg executables tb4_ouster_autonomy
-ros2 run tb4_ouster_autonomy stationary_diagnostics --help
-ros2 launch tb4_ouster_autonomy mount_tf.launch.py --show-args
-```
-
-The diagnostic accepts standard ROS arguments after `--ros-args`, including explicit topic remappings. Its UTC stamp-age report is intended for live, wall-clock observations; use ROS-time-aware tooling for simulated-time bag analysis.
-
-Prior recordings and retired scripts are preserved at `/home/ivlaborin2/tb4_archive_2026-09-17/`, outside this working repository. The retired scripts could change sensor or network settings and are not part of the new workflow.
+Prior recordings and retired scripts are preserved at `/home/ivlaborin2/tb4_archive_2026-09-17/`, outside this working repository. Repeatable stationary baseline bags are stored locally in `bags/` (omitted from version control).
