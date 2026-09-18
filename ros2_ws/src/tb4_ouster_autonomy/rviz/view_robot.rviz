@@ -32,19 +32,19 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Value: true
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Frames:
-        All Enabled: true
-      Marker Scale: 0.5
+        All Enabled: false
+      Marker Scale: 0.3
       Name: TF
-      Show Arrows: true
-      Show Axes: true
-      Show Names: true
+      Show Arrows: false
+      Show Axes: false
+      Show Names: false
       Tree:
         {}
       Update Interval: 0
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -79,7 +79,7 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Alpha: 0.8
+    - Alpha: 0.6
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
         Max Value: 10
@@ -88,10 +88,10 @@ Visualization Manager:
       Axis: Z
       Channel Name: intensity
       Class: rviz_default_plugins/PointCloud2
-      Color: 0; 255; 0
-      Color Transformer: AxisColor
+      Color: 0; 255; 200
+      Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Relative Partner: ""
@@ -101,7 +101,7 @@ Visualization Manager:
       Position Tolerance: 0.1
       Queue Size: 10
       Selectable: true
-      Size (Pixels): 3
+      Size (Pixels): 2
       Size (m): 0.02
       Style: Points
       Topic:
@@ -111,8 +111,8 @@ Visualization Manager:
         Reliability Policy: Best Effort
         Value: /ouster/points
       Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
+      Use rainbow: false
+      Value: false
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Polygon
@@ -141,10 +141,10 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz_default_plugins/Odometry
-      Color: 0; 128; 255
+      Color: 255; 0; 0
       Enabled: true
-      Keep: 100
-      Length: 0.3
+      Keep: 1
+      Length: 0.25
       Name: Odometry
       Position Tolerance: 0.1
       Topic:
