@@ -9,13 +9,14 @@ hazard fault latching, and explicit resume behavior per TODO.md Phase 1b gate.
 import json
 import os
 import time
+from typing import Optional
 import unittest
 
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import LaserScan
+from sensor_msgs.msg import LaserScan, PointCloud2
 from tf2_msgs.msg import TFMessage
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
@@ -41,12 +42,16 @@ class MockEnvironment(Node):
 
         self.last_cmd_safe: Twist = Twist()
         self.last_status: dict = {}
+        self.last_bumper_cloud: Optional[PointCloud2] = None
 
         self.sub_cmd_safe = self.create_subscription(
             Twist, "cmd_vel_safe", self.cmd_safe_cb, 10
         )
         self.sub_status = self.create_subscription(
             String, "/safety/status", self.status_cb, 10
+        )
+        self.sub_bumper_cloud = self.create_subscription(
+            PointCloud2, "/safety/bumper_contact_cloud", self.bumper_cloud_cb, 10
         )
 
         self.cli_resume = self.create_client(Trigger, "/safety/resume")
@@ -60,6 +65,9 @@ class MockEnvironment(Node):
             self.last_status = json.loads(msg.data)
         except Exception:
             pass
+
+    def bumper_cloud_cb(self, msg: PointCloud2):
+        self.last_bumper_cloud = msg
 
     def send_healthy_telemetry(self):
         now_stamp = self.get_clock().now().to_msg()
@@ -265,11 +273,11 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.spin_for(0.1)
         self.assertFalse(self.mock.last_status.get("latched_fault"))
 
-    def test_06b_bumper_contact_reroutes_away(self):
-        """Bumper contact does not latch e-stop; instead it reroutes on the spot away from obstacle."""
+    def test_06b_bumper_contact_multi_stage_recovery(self):
+        """Bumper contact executes Stage 1 (BACKUP) then Stage 2 (ROTATE) away from obstacle."""
         self.mock.send_healthy_telemetry()
 
-        # 1. Bump on right side -> should rotate left (positive angular.z)
+        # 1. Bump on right side -> Stage 1 (BACKUP: negative linear.x, zero angular.z)
         hazard_right = HazardDetectionVector()
         hr = HazardDetection()
         hr.type = HazardDetection.BUMP
@@ -281,10 +289,23 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.assertFalse(self.mock.last_status.get("latched_fault"))
         self.assertEqual(self.mock.last_status.get("state"), "BUMP_RECOVERY")
         self.assertEqual(self.mock.last_status.get("active_source"), "BUMP_REFLEX")
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "BACKUP")
+        self.assertLess(self.mock.last_cmd_safe.linear.x, 0.0)  # Reversing
+        self.assertEqual(self.mock.last_cmd_safe.angular.z, 0.0)
+        self.assertIsNotNone(self.mock.last_bumper_cloud)  # Synthetic cloud published
+
+        # 2. Advance beyond backup duration (0.5s) -> Stage 2 (ROTATE: positive angular.z, turning left)
+        self.mock.send_healthy_telemetry()
+        self.spin_for(0.55)
+
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "ROTATE")
+        self.assertEqual(self.mock.last_cmd_safe.linear.x, 0.0)
         self.assertGreater(self.mock.last_cmd_safe.angular.z, 0.0)  # Turning left away from right obstacle
 
-        # 2. Bump on left side -> should rotate right (negative angular.z)
+    def test_06c_bumper_contact_left_turns_right(self):
+        """Left bumper contact routes right in ROTATE stage (negative angular.z)."""
         self.mock.send_healthy_telemetry()
+
         hazard_left = HazardDetectionVector()
         hl = HazardDetection()
         hl.type = HazardDetection.BUMP
@@ -293,9 +314,81 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.mock.pub_hazard.publish(hazard_left)
         self.spin_for(0.1)
 
+        # Stage 1: BACKUP
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "BACKUP")
+        self.assertLess(self.mock.last_cmd_safe.linear.x, 0.0)
+
+        # Advance to Stage 2: ROTATE
+        self.mock.send_healthy_telemetry()
+        self.spin_for(0.55)
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "ROTATE")
+        self.assertLess(self.mock.last_cmd_safe.angular.z, 0.0)  # Turning right away from left obstacle
+
+    def test_06d_backup_limit_aborts_backup_to_rotate(self):
+        """BACKUP_LIMIT hazard while reversing immediately transitions from BACKUP to ROTATE."""
+        self.mock.send_healthy_telemetry()
+
+        # Trigger right bumper
+        hazard = HazardDetectionVector()
+        h = HazardDetection()
+        h.type = HazardDetection.BUMP
+        h.header.frame_id = "bump_front_right"
+        hazard.detections.append(h)
+        self.mock.pub_hazard.publish(hazard)
+        self.spin_for(0.1)
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "BACKUP")
+
+        # Now trigger BACKUP_LIMIT (type 0)
+        hazard_bl = HazardDetectionVector()
+        h_bl = HazardDetection()
+        h_bl.type = HazardDetection.BACKUP_LIMIT
+        hazard_bl.detections.append(h_bl)
+        self.mock.pub_hazard.publish(hazard_bl)
+        self.spin_for(0.1)
+
+        # Must immediately be in ROTATE stage without waiting for 0.5s timer
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "ROTATE")
+        self.assertGreater(self.mock.last_cmd_safe.angular.z, 0.0)
+
+    def test_06e_stall_triggers_recovery(self):
+        """Wheel stall (STALL, type 3) triggers escape recovery."""
+        self.mock.send_healthy_telemetry()
+
+        hazard = HazardDetectionVector()
+        h = HazardDetection()
+        h.type = HazardDetection.STALL
+        hazard.detections.append(h)
+        self.mock.pub_hazard.publish(hazard)
+        self.spin_for(0.1)
+
         self.assertFalse(self.mock.last_status.get("latched_fault"))
         self.assertEqual(self.mock.last_status.get("state"), "BUMP_RECOVERY")
-        self.assertLess(self.mock.last_cmd_safe.angular.z, 0.0)  # Turning right away from left obstacle
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "BACKUP")
+
+    def test_06f_trapped_consecutive_bumps_latches_fault(self):
+        """Exceeding max_consecutive_bumps (4) latches fault to protect motors from endless traps."""
+        self.mock.send_healthy_telemetry()
+
+        # Inject 4 consecutive bumps with release between them
+        for _ in range(4):
+            hazard = HazardDetectionVector()
+            h = HazardDetection()
+            h.type = HazardDetection.BUMP
+            h.header.frame_id = "bump_front_center"
+            hazard.detections.append(h)
+            self.mock.pub_hazard.publish(hazard)
+            self.spin_for(0.05)
+
+            # Release contact
+            hazard_clear = HazardDetectionVector()
+            self.mock.pub_hazard.publish(hazard_clear)
+            self.spin_for(0.05)
+
+        self.assertTrue(self.mock.last_status.get("latched_fault"))
+        self.assertEqual(self.mock.last_status.get("state"), "LATCHED_FAULT")
+        self.assertIn("trapped", self.mock.last_status.get("reason").lower())
+        self.assertEqual(self.mock.last_cmd_safe.linear.x, 0.0)
+        self.assertEqual(self.mock.last_cmd_safe.angular.z, 0.0)
 
     def test_07_estop_service_latches_fault(self):
         """Calling /safety/emergency_stop latches fault."""

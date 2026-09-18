@@ -10,23 +10,34 @@ Publishes `/cmd_vel_safe` which feeds `nav2_collision_monitor`.
 """
 
 import json
+import math
 import time
 from typing import Optional
 
+from geometry_msgs.msg import Twist
+from irobot_create_msgs.msg import DockStatus, HazardDetectionVector
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
-from geometry_msgs.msg import Twist
-from nav_msgs.msg import Odometry
-from sensor_msgs.msg import LaserScan
-from tf2_msgs.msg import TFMessage
-from std_msgs.msg import Bool, String
+from sensor_msgs.msg import LaserScan, PointCloud2
+import sensor_msgs_py.point_cloud2 as pc2
+from std_msgs.msg import Bool, Header, String
 from std_srvs.srv import Trigger
-from irobot_create_msgs.msg import DockStatus, HazardDetectionVector
+from tf2_msgs.msg import TFMessage
 
 
 def stamp_to_sec(stamp) -> float:
     return stamp.sec + stamp.nanosec * 1e-9
+
+
+class RecoveryStage:
+    """Stages of bumper escape recovery state machine."""
+
+    IDLE = "IDLE"
+    BACKUP = "BACKUP"
+    ROTATE = "ROTATE"
+    SETTLE = "SETTLE"
 
 
 class SafetyAuthorityGate(Node):
@@ -48,8 +59,14 @@ class SafetyAuthorityGate(Node):
         self.declare_parameter("require_telemetry_for_motion", True)
         self.declare_parameter("max_linear_speed", 0.15)
         self.declare_parameter("max_angular_speed", 0.50)
-        self.declare_parameter("bump_recovery_speed", 0.30)
-        self.declare_parameter("bump_recovery_duration_s", 1.0)
+        self.declare_parameter("bump_backup_speed", 0.06)
+        self.declare_parameter("bump_backup_duration_s", 0.50)
+        self.declare_parameter("bump_rotate_speed", 0.40)
+        self.declare_parameter("bump_rotate_duration_s", 1.20)
+        self.declare_parameter("bump_center_rotate_duration_s", 2.00)
+        self.declare_parameter("bump_settle_duration_s", 0.20)
+        self.declare_parameter("max_consecutive_bumps", 4)
+        self.declare_parameter("bump_history_window_s", 10.0)
 
         self.publish_rate_hz = self.get_parameter("publish_rate_hz").value
         self.cmd_timeout_s = self.get_parameter("cmd_timeout_s").value
@@ -63,8 +80,14 @@ class SafetyAuthorityGate(Node):
         self.require_telemetry_for_motion = self.get_parameter("require_telemetry_for_motion").value
         self.max_linear_speed = self.get_parameter("max_linear_speed").value
         self.max_angular_speed = self.get_parameter("max_angular_speed").value
-        self.bump_recovery_speed = self.get_parameter("bump_recovery_speed").value
-        self.bump_recovery_duration_s = self.get_parameter("bump_recovery_duration_s").value
+        self.bump_backup_speed = self.get_parameter("bump_backup_speed").value
+        self.bump_backup_duration_s = self.get_parameter("bump_backup_duration_s").value
+        self.bump_rotate_speed = self.get_parameter("bump_rotate_speed").value
+        self.bump_rotate_duration_s = self.get_parameter("bump_rotate_duration_s").value
+        self.bump_center_rotate_duration_s = self.get_parameter("bump_center_rotate_duration_s").value
+        self.bump_settle_duration_s = self.get_parameter("bump_settle_duration_s").value
+        self.max_consecutive_bumps = self.get_parameter("max_consecutive_bumps").value
+        self.bump_history_window_s = self.get_parameter("bump_history_window_s").value
 
         # Internal state
         self.latched_fault = False
@@ -73,9 +96,15 @@ class SafetyAuthorityGate(Node):
         self.deadman_active = True if not self.require_deadman_topic else False
         self.last_deadman_time: float = 0.0
         self.active_hazards: list = []
-        self.bump_recovery_active: bool = False
-        self.bump_recovery_until: float = 0.0
-        self.bump_recovery_twist: Twist = Twist()
+
+        # Multi-stage Bumper Recovery State Machine
+        self.recovery_stage: str = RecoveryStage.IDLE
+        self.recovery_deadline: float = 0.0
+        self.recovery_twist: Twist = Twist()
+        self.escape_direction: str = "none"
+        self.consecutive_bumps: int = 0
+        self.last_bump_time: float = 0.0
+        self.bumper_in_contact: bool = False
 
         # Last received commands
         self.last_teleop_cmd: Optional[Twist] = None
@@ -136,6 +165,9 @@ class SafetyAuthorityGate(Node):
         # Publishers
         self.pub_cmd_vel_safe = self.create_publisher(Twist, "cmd_vel_safe", 10)
         self.pub_status = self.create_publisher(String, "/safety/status", 10)
+        self.pub_bumper_cloud = self.create_publisher(
+            PointCloud2, "/safety/bumper_contact_cloud", 10
+        )
 
         # Timer loop
         timer_period = 1.0 / self.publish_rate_hz if self.publish_rate_hz > 0 else 0.1
@@ -163,6 +195,7 @@ class SafetyAuthorityGate(Node):
             self.latched_fault = True
             self.fault_reason = "Operator emergency stop triggered via /operator/stop"
             self.get_logger().warn(self.fault_reason)
+            self._abort_recovery()
 
     def dock_callback(self, msg: DockStatus):
         self.is_docked = msg.is_docked
@@ -172,50 +205,97 @@ class SafetyAuthorityGate(Node):
         now = time.monotonic()
         hard_hazards = []
         bump_frames = []
+        is_stall = False
+        is_backup_limit = False
 
         for d in msg.detections:
-            # 1: BUMP, 2: CLIFF, 3: STALL, 4: WHEEL_DROP, 5: OBJECT_DETECT
-            if d.type in (2, 4):
+            # 0: BACKUP_LIMIT, 1: BUMP, 2: CLIFF, 3: STALL, 4: WHEEL_DROP, 5: OBJECT_PROXIMITY
+            if d.type in (2, 4):  # CLIFF, WHEEL_DROP
                 hard_hazards.append(f"type_{d.type}")
-            elif d.type == 1:
+            elif d.type == 1:  # BUMP
                 bump_frames.append(d.header.frame_id)
+            elif d.type == 3:  # STALL
+                is_stall = True
+            elif d.type == 0:  # BACKUP_LIMIT
+                is_backup_limit = True
 
-        # Critical hardware safety fault (cliff edge or lifted off ground)
+        # 1. Critical hardware safety fault (cliff edge or lifted off ground)
         if hard_hazards:
             self.latched_fault = True
             self.fault_reason = f"Critical safety hazard detected: {', '.join(hard_hazards)}"
             self.get_logger().error(self.fault_reason)
-            self.bump_recovery_active = False
+            self._abort_recovery()
             return
 
-        # Bumper collision: trigger directional escape reroute away from obstacle
-        if bump_frames and not self.latched_fault and not self.is_docked:
+        # 2. If backup limit is hit while reversing during recovery, advance immediately to rotate phase
+        if is_backup_limit and self.recovery_stage == RecoveryStage.BACKUP:
+            self.get_logger().warn("Backup limit reached during recovery backup; advancing directly to rotation")
+            self._transition_to_rotate(now)
+            return
+
+        # 3. Handle physical collision / stall with rising-edge discrete event tracking
+        is_collision_now = bool(bump_frames or is_stall)
+        rising_edge_collision = is_collision_now and not self.bumper_in_contact
+        self.bumper_in_contact = is_collision_now
+
+        if is_collision_now and not self.latched_fault and not self.is_docked:
+            if rising_edge_collision:
+                # Consecutive bump check for trapped robot protection
+                if (now - self.last_bump_time) > self.bump_history_window_s:
+                    self.consecutive_bumps = 0
+                self.consecutive_bumps += 1
+                self.last_bump_time = now
+
+                if self.consecutive_bumps >= self.max_consecutive_bumps:
+                    self.latched_fault = True
+                    self.fault_reason = (
+                        f"Robot trapped: {self.consecutive_bumps} consecutive collisions within "
+                        f"{self.bump_history_window_s:.1f}s"
+                    )
+                    self.get_logger().error(self.fault_reason)
+                    self._abort_recovery()
+                    return
+
+            # If already actively recovering and not a new rising edge, do not restart maneuver
+            if not rising_edge_collision and self.recovery_stage in (RecoveryStage.BACKUP, RecoveryStage.ROTATE):
+                if self.recovery_stage == RecoveryStage.BACKUP and is_stall:
+                    self._transition_to_rotate(now)
+                return
+
+            # Determine escape direction
             has_right = any("right" in fid for fid in bump_frames)
             has_left = any("left" in fid for fid in bump_frames)
 
-            escape = Twist()
-            speed = abs(self.bump_recovery_speed)
-
             if has_right and not has_left:
-                # Obstacle on right -> turn on spot left (positive yaw)
-                escape.linear.x = 0.0
-                escape.angular.z = speed
-                self.fault_reason = "Bumper contact (right) -> rerouting left away from collision"
+                self.escape_direction = "left"
+                reason_detail = "right bumper impact -> rerouting left"
             elif has_left and not has_right:
-                # Obstacle on left -> turn on spot right (negative yaw)
-                escape.linear.x = 0.0
-                escape.angular.z = -speed
-                self.fault_reason = "Bumper contact (left) -> rerouting right away from collision"
+                self.escape_direction = "right"
+                reason_detail = "left bumper impact -> rerouting right"
             else:
-                # Center collision -> reverse slightly and rotate
-                escape.linear.x = -0.05
-                escape.angular.z = speed
-                self.fault_reason = "Bumper contact (center) -> reversing and rerouting"
+                if self.consecutive_bumps % 2 == 0:
+                    self.escape_direction = "right"
+                else:
+                    self.escape_direction = "left"
+                reason_detail = f"center impact/stall -> rerouting {self.escape_direction}"
 
+            self.fault_reason = f"Bumper contact ({reason_detail})"
             self.get_logger().warn(self.fault_reason)
-            self.bump_recovery_active = True
-            self.bump_recovery_until = now + self.bump_recovery_duration_s
-            self.bump_recovery_twist = escape
+
+            # Invalidate any stale pre-collision drive proposals
+            self.last_nav2_cmd = None
+            self.last_teleop_cmd = None
+
+            # Publish synthetic bumper contact cloud for costmap obstacle marking
+            self.publish_bumper_contact_cloud(self.escape_direction)
+
+            # Start Stage 1: BACKUP
+            self.recovery_stage = RecoveryStage.BACKUP
+            self.recovery_deadline = now + self.bump_backup_duration_s
+            backup_twist = Twist()
+            backup_twist.linear.x = -abs(self.bump_backup_speed)
+            backup_twist.angular.z = 0.0
+            self.recovery_twist = backup_twist
 
     def odom_callback(self, msg: Odometry):
         self.last_odom_stamp = stamp_to_sec(msg.header.stamp)
@@ -235,6 +315,7 @@ class SafetyAuthorityGate(Node):
     def estop_service_callback(self, request, response):
         self.latched_fault = True
         self.fault_reason = "Manual e-stop triggered via /safety/emergency_stop service"
+        self._abort_recovery()
         self.get_logger().warn(self.fault_reason)
         response.success = True
         response.message = self.fault_reason
@@ -254,10 +335,86 @@ class SafetyAuthorityGate(Node):
 
         self.latched_fault = False
         self.fault_reason = ""
+        self.consecutive_bumps = 0
+        self._abort_recovery()
         self.get_logger().info("Latched fault cleared via /safety/resume")
         response.success = True
         response.message = "Safety gate resumed. Fault cleared."
         return response
+
+    @property
+    def bump_recovery_active(self) -> bool:
+        return self.recovery_stage != RecoveryStage.IDLE
+
+    def _abort_recovery(self):
+        """Immediately abort any active recovery."""
+        self.recovery_stage = RecoveryStage.IDLE
+        self.recovery_twist = Twist()
+
+    def _transition_to_rotate(self, now: float):
+        """Transition from BACKUP to ROTATE stage."""
+        self.recovery_stage = RecoveryStage.ROTATE
+        rotate_twist = Twist()
+        rotate_twist.linear.x = 0.0
+
+        if self.escape_direction == "left":
+            rotate_twist.angular.z = abs(self.bump_rotate_speed)
+            duration = self.bump_rotate_duration_s
+        elif self.escape_direction == "right":
+            rotate_twist.angular.z = -abs(self.bump_rotate_speed)
+            duration = self.bump_rotate_duration_s
+        else:
+            rotate_twist.angular.z = abs(self.bump_rotate_speed)
+            duration = self.bump_center_rotate_duration_s
+
+        if self.consecutive_bumps > 1:
+            duration *= 1.3
+
+        self.recovery_twist = rotate_twist
+        self.recovery_deadline = now + duration
+        self.get_logger().info(
+            f"Recovery Stage 2: turning {self.escape_direction} "
+            f"(z={rotate_twist.angular.z:.2f} rad/s for {duration:.1f}s)"
+        )
+
+    def _transition_to_settle(self, now: float):
+        """Transition from ROTATE to SETTLE stage."""
+        self.recovery_stage = RecoveryStage.SETTLE
+        self.recovery_twist = Twist()
+        self.recovery_deadline = now + self.bump_settle_duration_s
+        self.get_logger().info(f"Recovery Stage 3: settling for {self.bump_settle_duration_s:.1f}s")
+
+    def _complete_recovery(self):
+        """Complete recovery maneuver and restore normal operation."""
+        self.get_logger().info("Bumper recovery maneuver complete. Normal motion restored.")
+        self.recovery_stage = RecoveryStage.IDLE
+        self.recovery_twist = Twist()
+        self.last_nav2_cmd = None
+        self.last_teleop_cmd = None
+
+    def publish_bumper_contact_cloud(self, side: str):
+        """Publish synthetic 3D points at bumper contact location for costmap marking."""
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = "base_link"
+
+        if side == "right":
+            angles = [-0.8, -0.5, -0.2]
+        elif side == "left":
+            angles = [0.2, 0.5, 0.8]
+        else:
+            angles = [-0.4, -0.2, 0.0, 0.2, 0.4]
+
+        radius = 0.175
+        points = []
+        for a in angles:
+            x = radius * math.cos(a)
+            y = radius * math.sin(a)
+            points.append([x, y, 0.03])
+            points.append([x, y, 0.07])
+
+        cloud = pc2.create_cloud_xyz32(header, points)
+        self.pub_bumper_cloud.publish(cloud)
 
     def check_telemetry_freshness(self, now: float) -> tuple[bool, str]:
         """Check whether odom, dynamic TF, and scan have fresh data."""
@@ -304,17 +461,25 @@ class SafetyAuthorityGate(Node):
             self.publish_status(state, active_source, reason, now)
             return
 
-        # 3. Check Active Bumper Recovery (Turning away on spot)
-        if self.bump_recovery_active:
-            if now < self.bump_recovery_until:
+        # 3. Check Active Bumper Recovery State Machine
+        if self.recovery_stage != RecoveryStage.IDLE:
+            if self.recovery_stage == RecoveryStage.BACKUP:
+                if now >= self.recovery_deadline:
+                    self._transition_to_rotate(now)
+            elif self.recovery_stage == RecoveryStage.ROTATE:
+                if now >= self.recovery_deadline:
+                    self._transition_to_settle(now)
+            elif self.recovery_stage == RecoveryStage.SETTLE:
+                if now >= self.recovery_deadline:
+                    self._complete_recovery()
+
+            if self.recovery_stage != RecoveryStage.IDLE:
                 state = "BUMP_RECOVERY"
                 active_source = "BUMP_REFLEX"
-                reason = self.fault_reason
-                self.pub_cmd_vel_safe.publish(self.bump_recovery_twist)
-                self.publish_status(state, active_source, reason, now)
+                reason = f"Bumper recovery ({self.recovery_stage.lower()}): {self.fault_reason}"
+                self.pub_cmd_vel_safe.publish(self.recovery_twist)
+                self.publish_status(state, active_source, reason, now, stage=self.recovery_stage)
                 return
-            else:
-                self.bump_recovery_active = False
 
         # 4. Check Deadman Switch & Heartbeat
         deadman_expired = (
@@ -373,7 +538,9 @@ class SafetyAuthorityGate(Node):
         self.pub_cmd_vel_safe.publish(out_twist)
         self.publish_status(state, active_source, reason, now)
 
-    def publish_status(self, state: str, source: str, reason: str, now: float):
+    def publish_status(
+        self, state: str, source: str, reason: str, now: float, stage: str = "NONE"
+    ):
         status = {
             "state": state,
             "active_source": source,
@@ -381,6 +548,9 @@ class SafetyAuthorityGate(Node):
             "is_docked": self.is_docked,
             "latched_fault": self.latched_fault,
             "deadman_active": self.deadman_active,
+            "recovery_stage": stage,
+            "escape_direction": self.escape_direction if self.recovery_stage != RecoveryStage.IDLE else "none",
+            "consecutive_bumps": self.consecutive_bumps,
             "odom_age_s": round(now - self.last_odom_recv, 3) if self.last_odom_recv > 0 else None,
             "tf_age_s": round(now - self.last_dynamic_tf_recv, 3) if self.last_dynamic_tf_recv > 0 else None,
             "scan_age_s": round(now - self.last_scan_recv, 3) if self.last_scan_recv > 0 else None,

@@ -36,6 +36,14 @@ def generate_launch_description():
             'allow_nav2': LaunchConfiguration('allow_nav2'),
             'max_linear_speed': 0.15,
             'max_angular_speed': 0.50,
+            'bump_backup_speed': 0.06,
+            'bump_backup_duration_s': 0.50,
+            'bump_rotate_speed': 0.40,
+            'bump_rotate_duration_s': 1.20,
+            'bump_center_rotate_duration_s': 2.00,
+            'bump_settle_duration_s': 0.20,
+            'max_consecutive_bumps': 4,
+            'bump_history_window_s': 10.0,
         }],
     )
 
