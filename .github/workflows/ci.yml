@@ -22,15 +22,18 @@ jobs:
 
       - name: Install Linting Tools
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install flake8 pyyaml
 
       - name: Run Flake8 Code Style Check
         run: |
+          set -euo pipefail
           flake8 --config .flake8 ros2_ws/src/
 
       - name: Validate XML and Configuration Syntax
         run: |
+          set -euo pipefail
           python3 -c "import xml.etree.ElementTree as ET; ET.parse('ros2_ws/src/tb4_ouster_autonomy/package.xml'); print('package.xml is valid XML')"
           python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/launch/*.py
           python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/tb4_ouster_autonomy/*.py
@@ -48,6 +51,7 @@ jobs:
       - name: Install System and ROS Build Dependencies
         shell: bash
         run: |
+          set -euo pipefail
           apt-get update
           apt-get install -y \
             python3-colcon-common-extensions \
@@ -59,6 +63,7 @@ jobs:
       - name: Colcon Build
         shell: bash
         run: |
+          set -euo pipefail
           source /opt/ros/humble/setup.bash
           cd ros2_ws
           colcon build --symlink-install
@@ -66,11 +71,13 @@ jobs:
       - name: Colcon Test
         shell: bash
         run: |
+          set -euo pipefail
           source /opt/ros/humble/setup.bash
           source ros2_ws/install/local_setup.bash
           cd ros2_ws
           PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
           colcon test-result --all --verbose
+          python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('build/tb4_ouster_autonomy/pytest.xml').getroot(); tests = int(root.attrib.get('tests', '0')); assert tests > 0, 'No tests executed for tb4_ouster_autonomy'; print(f'pytest.xml reports {tests} tests executed')"
 
       - name: Upload Test Results
         if: always()

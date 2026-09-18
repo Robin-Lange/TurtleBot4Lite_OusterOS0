@@ -91,6 +91,23 @@ class TestCloudFilter(unittest.TestCase):
         self.assertAlmostEqual(filtered_points[0][1], 0.5, places=2)
         self.assertAlmostEqual(filtered_points[0][2], 0.10, places=2)
 
+    def test_rate_limiter_drops_immediate_second_frame(self):
+        """Back-to-back callbacks should publish at most one frame at 10 Hz default target."""
+        header = Header()
+        header.stamp = self.test_node.get_clock().now().to_msg()
+        header.frame_id = "laser_frame"
+        points = np.array([[1.0, 0.0, 0.10]], dtype=np.float32)
+        in_msg = pc2.create_cloud_xyz32(header, points)
+
+        self.filter_node.last_published_time_s = 0.0
+        self.filter_node.cloud_callback(in_msg)
+        first_publish_time = self.filter_node.last_published_time_s
+        self.assertGreater(first_publish_time, 0.0)
+
+        # Immediate second callback should be rate-limited and not update publish timestamp.
+        self.filter_node.cloud_callback(in_msg)
+        self.assertEqual(self.filter_node.last_published_time_s, first_publish_time)
+
 
 if __name__ == "__main__":
     unittest.main()

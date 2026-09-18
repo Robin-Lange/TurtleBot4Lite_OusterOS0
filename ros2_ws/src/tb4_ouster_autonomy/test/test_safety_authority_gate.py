@@ -3,7 +3,7 @@
 
 Runs on an isolated ROS domain with mock messages. Validates command selection,
 deadman release, source timeout, telemetry freshness watchdogs, dock inhibition,
-hazard fault latching, and explicit resume behavior per TODO.md Phase 1b gate.
+hazard fault latching, collision recovery, and explicit resume behavior.
 """
 
 import json
@@ -387,6 +387,31 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.assertTrue(self.mock.last_status.get("latched_fault"))
         self.assertEqual(self.mock.last_status.get("state"), "LATCHED_FAULT")
         self.assertIn("trapped", self.mock.last_status.get("reason").lower())
+        self.assertEqual(self.mock.last_cmd_safe.linear.x, 0.0)
+        self.assertEqual(self.mock.last_cmd_safe.angular.z, 0.0)
+
+    def test_06g_recovery_sequence_completes_and_returns_to_idle(self):
+        """Recovery should progress BACKUP->ROTATE->SETTLE and then return to normal idle state."""
+        self.mock.send_healthy_telemetry()
+
+        hazard = HazardDetectionVector()
+        h = HazardDetection()
+        h.type = HazardDetection.BUMP
+        h.header.frame_id = "bump_front_right"
+        hazard.detections.append(h)
+        self.mock.pub_hazard.publish(hazard)
+        self.spin_for(0.1)
+        self.assertEqual(self.mock.last_status.get("state"), "BUMP_RECOVERY")
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "BACKUP")
+
+        # Keep telemetry/deadman fresh until all recovery stages complete.
+        end_time = time.monotonic() + 2.3
+        while time.monotonic() < end_time:
+            self.mock.send_healthy_telemetry()
+            self.spin_for(0.05)
+
+        self.assertEqual(self.mock.last_status.get("state"), "IDLE")
+        self.assertEqual(self.mock.last_status.get("recovery_stage"), "NONE")
         self.assertEqual(self.mock.last_cmd_safe.linear.x, 0.0)
         self.assertEqual(self.mock.last_cmd_safe.angular.z, 0.0)
 
