@@ -23,19 +23,19 @@ Not in current validated scope:
 
 ```mermaid
 flowchart LR
-    OS0[Ouster OS0-128 Rev07<br/>169.254.97.211] --> ETH[USB Ethernet Adapter]
-    ETH --> Jetson[Jetson Orin Nano<br/>Ubuntu 22.04 + ROS 2 Humble]
-    Jetson -->|USB-C network| Create3[iRobot Create 3]
+    OS0["Ouster OS0-128 Rev07<br/>169.254.97.211"] --> ETH["USB Ethernet Adapter"]
+    ETH --> Jetson["Jetson Orin Nano<br/>Ubuntu 22.04 + ROS 2 Humble"]
+    Jetson -->|USB-C network| Create3["iRobot Create 3"]
 ```
 
 ## Current software behavior
 
 ```mermaid
 flowchart LR
-    SensorHTTP[Ouster HTTP GET] --> Diagnostics[stationary_diagnostics]
-    ROSTopics[/odom /tf /dock_status /hazard_detection /ouster/*] --> Diagnostics
-    MountTF[mount_tf.launch.py] --> TF[base_link -> os_sensor -> laser_frame]
-    Diagnostics --> Report[JSON timing/rate report]
+    SensorHTTP["Ouster HTTP GET"] --> Diagnostics["stationary_diagnostics"]
+    ROSTopics["/odom, /tf, /dock_status,<br/>/hazard_detection, /ouster/*"] --> Diagnostics
+    MountTF["mount_tf.launch.py"] --> TF["base_link -> os_sensor -> laser_frame"]
+    Diagnostics --> Report["JSON timing/rate report"]
 ```
 
 ## Repository structure
