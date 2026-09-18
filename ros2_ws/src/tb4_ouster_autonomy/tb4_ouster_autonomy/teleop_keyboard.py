@@ -18,7 +18,6 @@ Controls:
   Ctrl+C / Esc        : exit cleanly
 """
 
-import os
 import select
 import sys
 import termios
@@ -37,7 +36,7 @@ HELP_TEXT = """
 Moving around:
         w / i
    a/j  s / ,  d/l
-        
+
    u : forward left     o : forward right
    m : backward left    . : backward right
 
