@@ -79,6 +79,8 @@ The top of the robot's plate is **0.090 m above the floor**. The iRobot logo mar
 
 The Ouster's optical plane is 0.038195 m above its sensor-bottom frame, so its nominal optical height is **0.171195 m above the floor**. The driver supplies its intrinsic `os_sensor -> os_lidar` transform; this workspace publishes only the base-to-sensor transform. The cloud frame observed in the live test was `os_lidar`. Ouster's lidar and sensor X axes differ, so view TF and the cloud together before interpreting directions. See [Ouster coordinate frames](https://docs.ouster.com/sensor-docs/firmware/coordinate-system).
 
+The measured total robot height from the floor to the top of the OS0 lidar cap is **0.225 m (22.5 cm)**. Relative to the sensor optical plane (+0.1712 m), the physical top extends to **+0.0538 m**; the self-filter bounding box is set to `[-0.22, 0.22]` m in XY and `[-0.25, 0.06]` m in Z (`laser_frame`) to fully enclose the robot and sensor assembly. Nav2 obstacle layers and the collision monitor are tuned to an obstacle clearance envelope of **[0.04, 0.25] m** in `base_link`, providing a 2.5 cm safety margin above the lidar cap while permitting traversal beneath overhead clearances exceeding 25 cm.
+
 The RViz screenshot's colored marks were point-cloud returns, not robot poses. The 2D Pose Estimate and Goal icons are generic RViz tools; no localization or goal-following stack was running.
 
 ## Stationary measurements and limits

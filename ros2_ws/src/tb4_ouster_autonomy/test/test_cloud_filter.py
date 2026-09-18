@@ -63,12 +63,14 @@ class TestCloudFilter(unittest.TestCase):
         # [2]: Below ground plane z = -0.15
         # [3]: Above ceiling z = 2.5
         # [4]: Too close (< 0.30m) (0.10, 0.10, 0.10)
+        # [5]: On sensor cap top z = +0.0538m (0.02, -0.02, 0.0538) inside self box
         points = np.array([
             [1.0, 0.5, 0.10],
             [-0.05, 0.05, -0.05],
             [1.0, 1.0, -0.20],
             [1.0, 1.0, 2.50],
             [0.10, 0.10, 0.10],
+            [0.02, -0.02, 0.0538],
         ], dtype=np.float32)
 
         in_msg = pc2.create_cloud_xyz32(header, points)

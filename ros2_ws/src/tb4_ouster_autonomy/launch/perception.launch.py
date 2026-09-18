@@ -80,7 +80,7 @@ def generate_launch_description():
             'self_box_min_y': -0.22,
             'self_box_max_y': 0.22,
             'self_box_min_z': -0.25,
-            'self_box_max_z': 0.05,
+            'self_box_max_z': 0.06,
         }],
     )
 

@@ -31,9 +31,11 @@ class CloudFilter(Node):
         self.declare_parameter("self_box_min_y", -0.22)
         self.declare_parameter("self_box_max_y", 0.22)
         self.declare_parameter("self_box_min_z", -0.25)
-        self.declare_parameter("self_box_max_z", 0.05)
+        # Total robot height is 0.225 m (22.5 cm) above floor.
+        # Optical height is 0.1712 m above floor, so robot top is at z = +0.0538 m.
+        # self_box_max_z = 0.06 m fully encloses the sensor cap.
+        self.declare_parameter("self_box_max_z", 0.06)
         # Height limits relative to laser_frame / os_lidar frame:
-        # Optical height is 0.171 m above floor.
         # min_height = -0.12 m means points below 0.051 m above floor (ground) are removed.
         # max_height = 1.5 m keeps obstacles up to ~1.67 m tall.
         self.declare_parameter("min_height", -0.12)
