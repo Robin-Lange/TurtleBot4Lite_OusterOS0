@@ -29,7 +29,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'publish_rate_hz': 10.0,
-            'cmd_timeout_s': 0.20,
+            'cmd_timeout_s': 0.60,
             'odom_timeout_s': 0.25,
             'tf_timeout_s': 0.25,
             'scan_timeout_s': 0.35,
