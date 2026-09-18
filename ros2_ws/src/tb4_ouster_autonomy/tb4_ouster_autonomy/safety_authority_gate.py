@@ -48,6 +48,8 @@ class SafetyAuthorityGate(Node):
         self.declare_parameter("require_telemetry_for_motion", True)
         self.declare_parameter("max_linear_speed", 0.15)
         self.declare_parameter("max_angular_speed", 0.50)
+        self.declare_parameter("bump_recovery_speed", 0.30)
+        self.declare_parameter("bump_recovery_duration_s", 1.0)
 
         self.publish_rate_hz = self.get_parameter("publish_rate_hz").value
         self.cmd_timeout_s = self.get_parameter("cmd_timeout_s").value
@@ -61,6 +63,8 @@ class SafetyAuthorityGate(Node):
         self.require_telemetry_for_motion = self.get_parameter("require_telemetry_for_motion").value
         self.max_linear_speed = self.get_parameter("max_linear_speed").value
         self.max_angular_speed = self.get_parameter("max_angular_speed").value
+        self.bump_recovery_speed = self.get_parameter("bump_recovery_speed").value
+        self.bump_recovery_duration_s = self.get_parameter("bump_recovery_duration_s").value
 
         # Internal state
         self.latched_fault = False
@@ -69,6 +73,9 @@ class SafetyAuthorityGate(Node):
         self.deadman_active = True if not self.require_deadman_topic else False
         self.last_deadman_time: float = 0.0
         self.active_hazards: list = []
+        self.bump_recovery_active: bool = False
+        self.bump_recovery_until: float = 0.0
+        self.bump_recovery_twist: Twist = Twist()
 
         # Last received commands
         self.last_teleop_cmd: Optional[Twist] = None
@@ -162,11 +169,53 @@ class SafetyAuthorityGate(Node):
 
     def hazard_callback(self, msg: HazardDetectionVector):
         self.active_hazards = [d.type for d in msg.detections]
-        if msg.detections:
-            hazards = [f"type_{d.type}" for d in msg.detections]
+        now = time.monotonic()
+        hard_hazards = []
+        bump_frames = []
+
+        for d in msg.detections:
+            # 1: BUMP, 2: CLIFF, 3: STALL, 4: WHEEL_DROP, 5: OBJECT_DETECT
+            if d.type in (2, 4):
+                hard_hazards.append(f"type_{d.type}")
+            elif d.type == 1:
+                bump_frames.append(d.header.frame_id)
+
+        # Critical hardware safety fault (cliff edge or lifted off ground)
+        if hard_hazards:
             self.latched_fault = True
-            self.fault_reason = f"Hazard detected on base: {', '.join(hazards)}"
+            self.fault_reason = f"Critical safety hazard detected: {', '.join(hard_hazards)}"
             self.get_logger().error(self.fault_reason)
+            self.bump_recovery_active = False
+            return
+
+        # Bumper collision: trigger directional escape reroute away from obstacle
+        if bump_frames and not self.latched_fault and not self.is_docked:
+            has_right = any("right" in fid for fid in bump_frames)
+            has_left = any("left" in fid for fid in bump_frames)
+
+            escape = Twist()
+            speed = abs(self.bump_recovery_speed)
+
+            if has_right and not has_left:
+                # Obstacle on right -> turn on spot left (positive yaw)
+                escape.linear.x = 0.0
+                escape.angular.z = speed
+                self.fault_reason = "Bumper contact (right) -> rerouting left away from collision"
+            elif has_left and not has_right:
+                # Obstacle on left -> turn on spot right (negative yaw)
+                escape.linear.x = 0.0
+                escape.angular.z = -speed
+                self.fault_reason = "Bumper contact (left) -> rerouting right away from collision"
+            else:
+                # Center collision -> reverse slightly and rotate
+                escape.linear.x = -0.05
+                escape.angular.z = speed
+                self.fault_reason = "Bumper contact (center) -> reversing and rerouting"
+
+            self.get_logger().warn(self.fault_reason)
+            self.bump_recovery_active = True
+            self.bump_recovery_until = now + self.bump_recovery_duration_s
+            self.bump_recovery_twist = escape
 
     def odom_callback(self, msg: Odometry):
         self.last_odom_stamp = stamp_to_sec(msg.header.stamp)
@@ -197,9 +246,10 @@ class SafetyAuthorityGate(Node):
             response.message = "Cannot resume while robot is docked."
             return response
 
-        if self.active_hazards:
+        critical_hazards = [h for h in self.active_hazards if h in (2, 4)]
+        if critical_hazards:
             response.success = False
-            response.message = f"Cannot resume while active hazards persist: {self.active_hazards}"
+            response.message = f"Cannot resume while critical hazards persist: {critical_hazards}"
             return response
 
         self.latched_fault = False
@@ -254,7 +304,19 @@ class SafetyAuthorityGate(Node):
             self.publish_status(state, active_source, reason, now)
             return
 
-        # 3. Check Deadman Switch & Heartbeat
+        # 3. Check Active Bumper Recovery (Turning away on spot)
+        if self.bump_recovery_active:
+            if now < self.bump_recovery_until:
+                state = "BUMP_RECOVERY"
+                active_source = "BUMP_REFLEX"
+                reason = self.fault_reason
+                self.pub_cmd_vel_safe.publish(self.bump_recovery_twist)
+                self.publish_status(state, active_source, reason, now)
+                return
+            else:
+                self.bump_recovery_active = False
+
+        # 4. Check Deadman Switch & Heartbeat
         deadman_expired = (
             self.require_deadman_topic
             and (self.last_deadman_time == 0.0 or (now - self.last_deadman_time) > self.deadman_timeout_s)

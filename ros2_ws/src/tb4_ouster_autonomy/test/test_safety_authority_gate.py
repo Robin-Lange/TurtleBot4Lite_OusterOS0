@@ -229,13 +229,13 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.assertEqual(self.mock.last_status.get("state"), "INHIBITED_STALE_TELEMETRY")
 
     def test_06_hazard_fault_latching_and_resume(self):
-        """Bumper/cliff hazard latches fault; recovery requires /safety/resume."""
+        """Cliff/wheel-drop hazard latches fault; recovery requires /safety/resume."""
         self.mock.send_healthy_telemetry()
 
-        # Inject hazard
+        # Inject critical hazard (Cliff)
         hazard = HazardDetectionVector()
         h = HazardDetection()
-        h.type = HazardDetection.BUMP
+        h.type = HazardDetection.CLIFF
         hazard.detections.append(h)
         self.mock.pub_hazard.publish(hazard)
         self.spin_for(0.1)
@@ -264,6 +264,38 @@ class TestSafetyAuthorityGate(unittest.TestCase):
         self.assertTrue(future.result().success)
         self.spin_for(0.1)
         self.assertFalse(self.mock.last_status.get("latched_fault"))
+
+    def test_06b_bumper_contact_reroutes_away(self):
+        """Bumper contact does not latch e-stop; instead it reroutes on the spot away from obstacle."""
+        self.mock.send_healthy_telemetry()
+
+        # 1. Bump on right side -> should rotate left (positive angular.z)
+        hazard_right = HazardDetectionVector()
+        hr = HazardDetection()
+        hr.type = HazardDetection.BUMP
+        hr.header.frame_id = "bump_front_right"
+        hazard_right.detections.append(hr)
+        self.mock.pub_hazard.publish(hazard_right)
+        self.spin_for(0.1)
+
+        self.assertFalse(self.mock.last_status.get("latched_fault"))
+        self.assertEqual(self.mock.last_status.get("state"), "BUMP_RECOVERY")
+        self.assertEqual(self.mock.last_status.get("active_source"), "BUMP_REFLEX")
+        self.assertGreater(self.mock.last_cmd_safe.angular.z, 0.0)  # Turning left away from right obstacle
+
+        # 2. Bump on left side -> should rotate right (negative angular.z)
+        self.mock.send_healthy_telemetry()
+        hazard_left = HazardDetectionVector()
+        hl = HazardDetection()
+        hl.type = HazardDetection.BUMP
+        hl.header.frame_id = "bump_front_left"
+        hazard_left.detections.append(hl)
+        self.mock.pub_hazard.publish(hazard_left)
+        self.spin_for(0.1)
+
+        self.assertFalse(self.mock.last_status.get("latched_fault"))
+        self.assertEqual(self.mock.last_status.get("state"), "BUMP_RECOVERY")
+        self.assertLess(self.mock.last_cmd_safe.angular.z, 0.0)  # Turning right away from left obstacle
 
     def test_07_estop_service_latches_fault(self):
         """Calling /safety/emergency_stop latches fault."""
