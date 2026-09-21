@@ -14,7 +14,7 @@ collision_monitor:
 
     PolygonStop:
       type: "polygon"
-      points: [0.26, 0.24, 0.26, -0.24, -0.24, -0.24, -0.24, 0.24]
+      points: [0.20, 0.20, 0.20, -0.20, -0.20, -0.20, -0.20, 0.20]
       action_type: "stop"
       max_points: 3
       visualize: True
@@ -23,7 +23,7 @@ collision_monitor:
 
     PolygonSlow:
       type: "polygon"
-      points: [0.45, 0.35, 0.45, -0.35, -0.30, -0.35, -0.30, 0.35]
+      points: [0.32, 0.25, 0.32, -0.25, -0.24, -0.25, -0.24, 0.25]
       action_type: "slowdown"
       max_points: 3
       slowdown_ratio: 0.4
@@ -36,6 +36,6 @@ collision_monitor:
     pointcloud:
       type: "pointcloud"
       topic: "/ouster/cloud_filtered"
-      min_height: 0.04
+      min_height: 0.01
       max_height: 0.25
       enabled: True

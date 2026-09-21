@@ -2,7 +2,8 @@
 """Unit tests for CloudFilter node.
 
 Tests self-envelope cropping, ground plane rejection, ceiling rejection,
-and minimum range thresholding.
+minimum range thresholding, Enhanced RANSAC ground segmentation,
+normal angle gating against vertical walls, and temporal smoothing.
 """
 
 import os
@@ -35,8 +36,13 @@ class TestCloudFilter(unittest.TestCase):
 
         self.pub_raw = self.test_node.create_publisher(PointCloud2, "/ouster/points", 10)
         self.received_cloud = None
+        self.received_ground = None
+
         self.sub_filtered = self.test_node.create_subscription(
             PointCloud2, "/ouster/cloud_filtered", self.cloud_cb, 10
+        )
+        self.sub_ground = self.test_node.create_subscription(
+            PointCloud2, "/ouster/ground_points", self.ground_cb, 10
         )
 
         self.executor = rclpy.executors.SingleThreadedExecutor()
@@ -52,16 +58,19 @@ class TestCloudFilter(unittest.TestCase):
     def cloud_cb(self, msg: PointCloud2):
         self.received_cloud = msg
 
+    def ground_cb(self, msg: PointCloud2):
+        self.received_ground = msg
+
     def test_pointcloud_filtering(self):
         header = Header()
         header.stamp = self.test_node.get_clock().now().to_msg()
         header.frame_id = "laser_frame"
 
         # Define test points:
-        # [0]: Valid obstacle at 1.0m
+        # [0]: Valid obstacle at 1.0m (0.27m above ground)
         # [1]: Inside self box (-0.05, 0.05, -0.05)
-        # [2]: Below ground plane z = -0.15
-        # [3]: Above ceiling z = 2.5
+        # [2]: Below ground plane z = -0.20
+        # [3]: Above ceiling z = 2.50
         # [4]: Too close (< 0.30m) (0.10, 0.10, 0.10)
         # [5]: On sensor cap top z = +0.0538m (0.02, -0.02, 0.0538) inside self box
         points = np.array([
@@ -75,7 +84,6 @@ class TestCloudFilter(unittest.TestCase):
 
         in_msg = pc2.create_cloud_xyz32(header, points)
 
-        # Publish and spin
         for _ in range(5):
             self.pub_raw.publish(in_msg)
             deadline = time.monotonic() + 0.05
@@ -107,6 +115,83 @@ class TestCloudFilter(unittest.TestCase):
         # Immediate second callback should be rate-limited and not update publish timestamp.
         self.filter_node.cloud_callback(in_msg)
         self.assertEqual(self.filter_node.last_published_time_s, first_publish_time)
+
+    def test_enhanced_ransac_ground_and_low_obstacle_separation(self):
+        """Enhanced RANSAC extracts ground plane and preserves low obstacles (5 cm tall)."""
+        header = Header()
+        header.stamp = self.test_node.get_clock().now().to_msg()
+        header.frame_id = "laser_frame"
+
+        # Generate 150 synthetic floor points around z = -0.1712 m
+        x_floor = np.linspace(-2.0, 2.0, 15)
+        y_floor = np.linspace(-2.0, 2.0, 10)
+        xx, yy = np.meshgrid(x_floor, y_floor)
+        floor_pts = np.column_stack([
+            xx.ravel(),
+            yy.ravel(),
+            np.full(xx.size, -0.1712, dtype=np.float32),
+        ]).astype(np.float32)
+
+        # Filter out points inside self box or too close for clean setup
+        mask_valid = (floor_pts[:, 0] ** 2 + floor_pts[:, 1] ** 2 >= 0.35 ** 2)
+        floor_pts = floor_pts[mask_valid]
+
+        # Add 3 low obstacle points (e.g. 5 cm above floor => z = -0.1212 m)
+        low_obstacle_pts = np.array([
+            [1.2, 0.5, -0.1212],
+            [1.2, 0.55, -0.1212],
+            [1.2, 0.6, -0.1212],
+        ], dtype=np.float32)
+
+        all_points = np.vstack([floor_pts, low_obstacle_pts])
+        in_msg = pc2.create_cloud_xyz32(header, all_points)
+
+        self.filter_node.last_published_time_s = 0.0
+        self.received_cloud = None
+        self.received_ground = None
+
+        for _ in range(5):
+            self.pub_raw.publish(in_msg)
+            deadline = time.monotonic() + 0.05
+            while time.monotonic() < deadline:
+                self.executor.spin_once(timeout_sec=0.02)
+
+        self.assertIsNotNone(self.received_cloud, "Filtered obstacle cloud must be published")
+        self.assertIsNotNone(self.received_ground, "Ground cloud must be published")
+
+        filtered_pts = pc2.read_points_numpy(self.received_cloud, field_names=["x", "y", "z"])
+        ground_pts = pc2.read_points_numpy(self.received_ground, field_names=["x", "y", "z"])
+
+        # Ground cloud should contain the floor points
+        self.assertGreater(len(ground_pts), 50)
+        # Low obstacle points should be preserved in obstacle cloud, while floor is excluded
+        self.assertEqual(len(filtered_pts), 3)
+        for pt in filtered_pts:
+            self.assertAlmostEqual(pt[0], 1.2, places=1)
+            self.assertAlmostEqual(pt[2], -0.1212, places=3)
+
+    def test_normal_angle_gating_rejects_vertical_wall(self):
+        """Dense vertical wall points must not trick RANSAC into estimating a vertical ground."""
+        # 100 vertical wall points at x = 1.0 m, spanning z = [-0.25, 0.50]
+        y_vals = np.linspace(-0.5, 0.5, 20)
+        z_vals = np.linspace(-0.25, 0.50, 5)
+        yy, zz = np.meshgrid(y_vals, z_vals)
+        wall_pts = np.column_stack([
+            np.full(yy.size, 1.0, dtype=np.float32),
+            yy.ravel(),
+            zz.ravel(),
+        ]).astype(np.float32)
+
+        # Run fit_ground_plane_ransac on seeds from wall
+        normal, d, success = self.filter_node.fit_ground_plane_ransac(wall_pts)
+
+        # Normal angle gating must reject wall hypothesis: normal z should stay upright
+        self.assertGreaterEqual(
+            normal[2],
+            self.filter_node.min_cos_tilt,
+            "Fitted normal z must be upright (>= cos(15 deg))",
+        )
+        self.assertFalse(success, "RANSAC must reject vertical wall as ground")
 
 
 if __name__ == "__main__":

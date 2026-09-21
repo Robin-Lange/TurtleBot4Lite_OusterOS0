@@ -34,6 +34,11 @@ def generate_launch_description():
         default_value='63',
         description='Ouster beam ring to extract as 2D LaserScan (-0.11 deg horizontal)',
     )
+    min_distance_arg = DeclareLaunchArgument(
+        'min_distance',
+        default_value='30',
+        description='Minimum reported distance in cm (30 or 50)',
+    )
     start_driver_arg = DeclareLaunchArgument(
         'start_driver',
         default_value='true',
@@ -61,6 +66,7 @@ def generate_launch_description():
             'timestamp_mode': 'TIME_FROM_ROS_TIME',
             'proc_mask': 'PCL|IMU|SCAN',
             'scan_ring': LaunchConfiguration('scan_ring'),
+            'min_distance': LaunchConfiguration('min_distance'),
             'viz': 'false',
         }.items(),
         condition=IfCondition(LaunchConfiguration('start_driver')),
@@ -97,6 +103,7 @@ def generate_launch_description():
         sensor_hostname_arg,
         lidar_mode_arg,
         scan_ring_arg,
+        min_distance_arg,
         start_driver_arg,
         relay_scan_arg,
         mount_tf_launch,
