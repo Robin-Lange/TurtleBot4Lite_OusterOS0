@@ -63,17 +63,19 @@ jobs:
       - name: Colcon Build
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
           source /opt/ros/humble/setup.bash
+          set -u
           cd ros2_ws
           colcon build --symlink-install
 
       - name: Colcon Test
         shell: bash
         run: |
-          set -euo pipefail
+          set -eo pipefail
           source /opt/ros/humble/setup.bash
           source ros2_ws/install/local_setup.bash
+          set -u
           cd ros2_ws
           PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
           colcon test-result --all --verbose
