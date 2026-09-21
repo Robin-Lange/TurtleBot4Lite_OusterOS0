@@ -31,7 +31,7 @@ def generate_launch_description():
 
     map_arg = DeclareLaunchArgument(
         'map',
-        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map.yaml',
+        default_value=os.path.join(pkg_share, 'maps', 'arena_map.yaml'),
         description='Full path to the map yaml file to load for navigation',
     )
 

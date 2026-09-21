@@ -242,7 +242,7 @@ class OvernightMonitor(Node):
 
 def main():
     rclpy.init()
-    base_dir = "/home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws"
+    base_dir = os.getcwd()
     log_path = os.path.join(base_dir, "overnight_test.log")
     summary_path = os.path.join(base_dir, "overnight_summary.json")
 

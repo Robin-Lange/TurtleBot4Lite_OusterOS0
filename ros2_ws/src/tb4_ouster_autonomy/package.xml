@@ -2,7 +2,7 @@
 <package format="3">
   <name>tb4_ouster_autonomy</name>
   <version>0.1.0</version>
-  <description>Stationary diagnostics and frame setup for a Create 3 with Ouster OS0.</description>
+  <description>Mapping, navigation, perception, and diagnostics for a Create 3 with Ouster OS0.</description>
   <maintainer email="rl11732@georgiasouthern.edu">RobinLange</maintainer>
   <license>Unspecified</license>
   <buildtool_depend>ament_python</buildtool_depend>

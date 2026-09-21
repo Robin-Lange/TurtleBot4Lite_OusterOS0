@@ -1,228 +1,292 @@
-# Create 3 + Jetson Orin Nano + Ouster OS0 (ROS 2 Humble)
+# Create 3 + Jetson Orin Nano + Ouster OS0
 
-This repository tracks the **current, validated state** of a custom iRobot Create 3 platform with a Jetson Orin Nano and Ouster OS0-128 Rev07.
+This repository contains the complete ROS 2 Humble workspace used to map an
+indoor space and navigate an iRobot Create 3 fitted with a Jetson Orin Nano and
+an Ouster OS0-128 Rev07.
 
-The repository name (`TurtleBot4Lite_OusterOS0`) and package name (`tb4_ouster_autonomy`) are retained for path compatibility only; they do **not** imply TurtleBot 4 software/hardware dependencies.
+The repository name (`TurtleBot4Lite_OusterOS0`) and ROS package name
+(`tb4_ouster_autonomy`) are retained for compatibility. This is a custom
+Create 3 platform and does not use TurtleBot 4 bringup.
 
----
+## What the system does
 
-## Operation — Session A: Create a map by driving manually
-
-Run these steps in order. You need three terminals on the Jetson.
-
-**Step 1 — Undock the robot** (skip if already undocked)
-
-```bash
-source /opt/ros/humble/setup.bash
-ros2 action send_goal /undock irobot_create_msgs/action/Undock "{}"
-```
-
-**Step 2 — Start the mapping stack** (Terminal 1)
-
-Starts the Ouster driver, mount TF, point-cloud filter, SLAM Toolbox, and RViz.
-
-```bash
-source /opt/ros/humble/setup.bash
-source /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install/setup.bash
-ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=true
-```
-
-Wait until RViz opens and the laser scan ring is visible before driving.
-Mapping mode uses SLAM Toolbox to create `map -> odom`; it does not use AMCL or
-the **2D Pose Estimate** tool.
-
-**Step 3 — Drive the robot** (Terminal 2)
-
-```bash
-source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=42
-ros2 run teleop_twist_keyboard teleop_twist_keyboard
-```
-
-Controls: `w`/`s` forward/back · `a`/`d` turn left/right · `Space` stop.
-Drive slowly and make sure every part of the space is covered from multiple angles.
-Watch the map grow in RViz (`/map` display, Fixed Frame: `map`).
-
-**Step 4 — Save the map** (Terminal 3, when coverage looks complete)
-
-```bash
-source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=42
-ros2 run nav2_map_server map_saver_cli -f ~/TurtleBot4Lite_OusterOS0/arena_map
-```
-
-This writes `arena_map.pgm` and `arena_map.yaml` to the repo root.
-Stop Terminal 1 and Terminal 2 with `Ctrl+C` after saving.
-
----
-
-## Operation — Session B: Navigate autonomously with a saved map
-
-Run these steps in order. You need one terminal on the Jetson.
-
-**Step 1 — Undock the robot** (skip if already undocked)
-
-```bash
-source /opt/ros/humble/setup.bash
-ros2 action send_goal /undock irobot_create_msgs/action/Undock "{}"
-```
-
-**Step 2 — Start the navigation stack** (Terminal 1)
-
-Starts the Ouster driver, AMCL localisation, Nav2 (planner + controller + waypoint follower),
-3D VoxelLayer costmap, bumper contact cloud, and RViz.
-
-```bash
-source /opt/ros/humble/setup.bash
-source /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install/setup.bash
-ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true
-```
-
-To use a different map file: append `map:=/path/to/map.yaml`.
-
-**Step 3 — Set the initial pose in RViz**
-
-1. In RViz, click the **"2D Pose Estimate"** button in the toolbar.
-2. Click on the map at the robot's current physical location and drag in the direction it is facing.
-3. Watch the green AMCL particle cloud collapse around the robot — localisation is confirmed when the particles converge.
-
-**Step 4 — Send navigation goals**
-
-*Single goal:*
-Click the **"Nav2 Goal"** button in the RViz toolbar, then click a destination on the map.
-The robot plans a path (shown in blue), avoids obstacles in real time via the 3D costmap, and stops at the goal.
-
-*Waypoint sequence (Nav2 Panel):*
-Use the **Navigation 2** panel on the left side of RViz:
-1. Click **"Waypoint / Nav Through Poses Mode"**.
-2. Use the **"Nav2 Goal"** tool to click multiple waypoints on the map in order.
-3. Click **"Start Nav Through Poses"** to execute the full sequence.
-
-**Step 5 — Stop navigation**
-
-Press `Ctrl+C` in Terminal 1. The robot stops immediately when the controller node shuts down.
-
----
-
-
-
-## Current scope
-
-Active, operational modes:
-
-- **Map mode** — manual SLAM mapping via teleop + SLAM Toolbox
-- **Navigate mode** — autonomous waypoint navigation with Nav2, AMCL localisation, 3D VoxelLayer costmap (Ouster OS0), and bumper contact cloud (LiDAR blind-spot coverage)
-- **Diagnose mode** — read-only stationary diagnostics and TF inspection
-
-Not yet validated:
-
-- Long-duration unattended runs
-- Multi-room or multi-floor navigation
-- Sensor reconfiguration or firmware changes as part of routine operation
-
-## System layout
+- Creates a 2D occupancy map from an Ouster scan ring with SLAM Toolbox.
+- Saves and reloads maps with the standard Nav2 map tools.
+- Localizes on a saved map with AMCL.
+- Plans paths and follows single goals or waypoint sequences with Nav2.
+- Uses the full filtered Ouster point cloud in 3D local and global costmaps.
+- Adds Create 3 bumper contacts to the local costmap to cover the LiDAR blind
+  spot close to the robot.
+- Bridges Create 3 topics on ROS domain 0 to the autonomy stack on domain 42.
+- Provides a stationary diagnostics mode that does not command motion.
 
 ```mermaid
 flowchart LR
-    OS0[Ouster OS0-128 Rev07<br/>169.254.97.211] --> ETH[USB Ethernet Adapter]
-    ETH --> Jetson[Jetson Orin Nano<br/>Ubuntu 22.04 + ROS 2 Humble]
-    Jetson -->|USB-C network| Create3[iRobot Create 3]
+    OS0[Ouster OS0-128] --> Driver[ouster_ros]
+    Driver --> Scan[2D scan ring]
+    Driver --> Cloud[3D point cloud]
+    Scan --> SLAM[SLAM Toolbox / AMCL]
+    Cloud --> Filter[Robot self-filter]
+    Filter --> Costmaps[Nav2 voxel and obstacle layers]
+    Create3[Create 3 odometry, TF, bumpers] <--> Bridge[Domain bridge 0 to 42]
+    Bridge --> SLAM
+    Bridge --> Costmaps
+    SLAM --> Nav2[Nav2 planner and controller]
+    Costmaps --> Nav2
+    Nav2 --> Smoother[Velocity smoother]
+    Smoother --> Bridge
 ```
 
-## Current software behavior
+## Hardware and network
 
-```mermaid
-flowchart LR
-    SensorHTTP[Ouster HTTP GET] --> Diagnostics[stationary_diagnostics]
-    ROSTopics[/odom /tf /dock_status /hazard_detection /ouster/*] --> Diagnostics
-    MountTF[mount_tf.launch.py] --> TF[base_link -> os_sensor -> laser_frame]
-    Diagnostics --> Report[JSON timing/rate report]
-```
+The working platform consists of:
 
-## Repository structure
+- iRobot Create 3 mobile base
+- Jetson Orin Nano running Ubuntu 22.04 and ROS 2 Humble
+- Ouster OS0-128 Rev07 connected through a USB Ethernet adapter
+- USB-C network connection between the Jetson and Create 3
 
-```text
-ros2_ws/src/tb4_ouster_autonomy/
-├── config/
-│   ├── nav2_params.yaml          # Nav2, AMCL, costmap (VoxelLayer + bumper source)
-│   ├── slam_toolbox_params.yaml  # Async SLAM, 5 cm resolution
-│   └── collision_monitor_params.yaml  # Retained, not launched
-├── launch/
-│   ├── robot.launch.py           # Entry point: mode:=map | navigate | diagnose
-│   ├── mapping.launch.py         # Perception + SLAM Toolbox
-│   ├── navigate.launch.py        # Perception + full Nav2 stack
-│   ├── perception.launch.py      # Ouster driver + mount TF + cloud_filter + /scan relay
-│   ├── mount_tf.launch.py        # Static TF: base_link → os_sensor → laser_frame
-│   └── safety.launch.py          # Retained, not launched
-├── rviz/
-│   ├── view_robot.rviz           # Diagnose/map view (map frame is selected at launch)
-│   └── navigate.rviz             # Navigate mode view (map frame, costmaps, paths)
-├── tb4_ouster_autonomy/
-│   ├── bumper_contact_cloud.py   # BUMP → PointCloud2 for costmap blind-spot coverage
-│   ├── cloud_filter.py           # Removes self-hits, rate-limits /ouster/points
-│   ├── stationary_diagnostics.py # Read-only topic timing diagnostics
-│   ├── safety_authority_gate.py  # Retained, not launched
-│   ├── overnight_monitor.py      # Retained, not launched
-│   └── teleop_keyboard.py        # Retained, not launched
-└── test/
-```
+The launch files use these network settings:
 
-Only `stationary_diagnostics.py` and `mount_tf.launch.py` are part of the current documented operational baseline.
+| Device or stack | Address/domain |
+| --- | --- |
+| Ouster sensor | `169.254.97.211` |
+| Create 3 ROS graph | ROS domain `0` |
+| Jetson autonomy graph | ROS domain `42` |
 
-## Build and local validation
+The unified launch file starts `domain_bridge` for mapping and navigation, so
+the Create 3 can remain on domain 0 while the Jetson autonomy nodes use domain
+42. Do not set `FASTRTPS_DEFAULT_PROFILES_FILE`; a Create 3-only discovery
+profile can hide local Ouster and Nav2 nodes.
+
+## Software setup
+
+Install ROS 2 Humble and the runtime packages used by this workspace, including
+the Ouster ROS 2 driver, Nav2, SLAM Toolbox, `domain_bridge`,
+`teleop_twist_keyboard`, and `topic_tools`. Then install declared package
+dependencies and build the overlay:
 
 ```bash
+git clone YOUR_REPOSITORY_URL TurtleBot4Lite_OusterOS0
+cd TurtleBot4Lite_OusterOS0
 source /opt/ros/humble/setup.bash
-cd /home/runner/work/TurtleBot4Lite_OusterOS0/TurtleBot4Lite_OusterOS0/ros2_ws
+rosdep install --from-paths ros2_ws/src --ignore-src --rosdistro humble -y \
+  --skip-keys "ament_python domain_bridge"
+cd ros2_ws
 colcon build --symlink-install
-source install/local_setup.bash
-PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
-colcon test-result --all --verbose
+source install/setup.bash
 ```
 
-CI is defined in `/home/runner/work/TurtleBot4Lite_OusterOS0/TurtleBot4Lite_OusterOS0/.github/workflows/ci.yml` (lint, syntax checks, colcon build/test).
+`ament_python` is supplied by the ROS installation rather than installed as a
+rosdep key on the original Jetson. Install `ros-humble-domain-bridge` on a
+fresh machine; the launch file can also use a bridge installed under
+`ros2_ws/install/domain_bridge_vendor`.
 
-## Read-only hardware checks
+Run the final `source` command from the repository root in every new terminal.
 
-Use these for current-state verification without changing robot/sensor behavior:
+Before operating the robot, confirm the connections and ROS graph:
 
 ```bash
 ip -brief addr
 curl -fsS http://169.254.97.211/api/v1/sensor/config
 ros2 topic list -t
-ros2 run tb4_ouster_autonomy stationary_diagnostics --seconds 10
 ```
 
-## Mount transform currently published
+The HTTP request is read-only. Starting the Ouster driver is different: it
+applies the launch configuration and may reinitialize the sensor session.
+
+## Stationary diagnostics
+
+Diagnose mode publishes the configured mount transforms and runs the read-only
+telemetry report. It does not start the sensor driver or publish velocity by
+default:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=diagnose
+```
+
+To inspect telemetry for a fixed interval without the unified launch file:
+
+```bash
+ros2 run tb4_ouster_autonomy stationary_diagnostics \
+  --seconds 10 --topics /odom,/tf,/dock_status
+```
+
+Add `rviz:=true` to diagnose mode for a TF and sensor view. Add
+`start_sensor:=true` only when intentionally starting the Ouster driver.
+
+## Create a map
+
+Mapping is a supervised manual-driving session. Use three terminals on the
+Jetson and keep the robot in view.
+
+### 1. Undock
+
+Skip this step if the robot is already undocked:
+
+```bash
+source /opt/ros/humble/setup.bash
+unset ROS_DOMAIN_ID
+ros2 action send_goal /undock irobot_create_msgs/action/Undock "{}"
+```
+
+### 2. Start mapping
+
+In terminal 1:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=true
+```
+
+This starts the domain bridge, Ouster driver, mount transforms, point-cloud
+filter, `/scan` relay, SLAM Toolbox, and RViz. Wait for the scan ring and map to
+appear before driving.
+
+### 3. Drive with the keyboard
+
+In terminal 2:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+export ROS_DOMAIN_ID=42
+ros2 run teleop_twist_keyboard teleop_twist_keyboard
+```
+
+Use `w`/`s` to move forward/backward, `a`/`d` to turn, and the space bar to
+stop. Drive slowly, cover the usable area from several angles, and watch the
+map fill in RViz. Teleoperation publishes directly to `/cmd_vel`, so the
+operator is the safety authority during mapping.
+
+### 4. Save the map
+
+In terminal 3, after the map is complete:
+
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+ros2 run nav2_map_server map_saver_cli \
+  -f "$(pwd)/arena_map"
+```
+
+This creates `arena_map.pgm` and `arena_map.yaml`. Stop the robot with the space
+bar before ending the teleop and mapping processes with `Ctrl+C`.
+
+## Navigate with a saved map
+
+### 1. Undock and start Nav2
+
+Undock as shown in the mapping procedure, then run:
+
+```bash
+source /opt/ros/humble/setup.bash
+source ros2_ws/install/setup.bash
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true
+```
+
+The default map is the repository's `arena_map.yaml`. Select another map with:
+
+```bash
+ros2 launch tb4_ouster_autonomy robot.launch.py \
+  mode:=navigate rviz:=true map:=/absolute/path/to/map.yaml
+```
+
+Navigation starts the perception pipeline, AMCL, Nav2 planner/controller,
+velocity smoother, waypoint follower, bumper contact cloud, and RViz. Nav2 is
+limited to 0.15 m/s linear and 0.50 rad/s angular speed by the supplied
+configuration.
+
+### 2. Localize the robot
+
+In RViz, select **2D Pose Estimate**, click the robot's physical location on
+the map, and drag the arrow in its facing direction. Wait for the AMCL particle
+cloud to converge around the robot.
+
+### 3. Send goals
+
+- For one destination, select **Nav2 Goal** and click the destination and
+  heading on the map.
+- For a route, choose **Waypoint / Nav Through Poses Mode** in the Navigation 2
+  panel, add goals in order, and select **Start Nav Through Poses**.
+
+Keep the robot supervised and the area clear during operation. Cancel the
+active Nav2 goal and confirm the robot is stationary before stopping the launch
+process.
+
+## Coordinate frames and sensor configuration
+
+The Create 3 owns wheel control, odometry, and the `odom -> base_link` transform.
+This package adds the sensor frames and never duplicates Create 3 odometry.
 
 `mount_tf.launch.py` publishes:
 
 - `base_link -> os_sensor`: `(x=0.005, y=-0.010, z=0.133)` m
-- `os_sensor -> laser_frame`: `(x=0.0, y=0.0, z=0.038195)` m
+- `os_sensor -> laser_frame`: `(x=0, y=0, z=0.038195)` m
 
-These values are provisional mount measurements and should be treated as such until fully calibrated.
+The resulting optical origin is 0.171195 m above the floor. The transform uses
+the measured 0.090 m plate-top height and assumes the plate logo is over the
+Create 3 rotation center, the sensor is level, and its cable faces the rear.
+Update the transform if the physical mount changes.
 
-## Safety and change boundary
+The perception launch configures the Ouster for `1024x10`, ROS time stamps, a
+30 cm minimum distance, full point cloud and IMU output, and scan ring 63. It
+publishes `/ouster/points`, `/ouster/cloud_filtered`, `/ouster/scan`, and the
+standard `/scan` relay.
 
-Unless explicitly requested, do **not**:
+## Repository layout
 
-- publish `/cmd_vel`
-- send motion/undock goals
-- run autonomy launch paths as operational control
-- write Ouster settings
-- reinitialize sensor sessions
-- flash firmware
+```text
+.
+├── arena_map.pgm / arena_map.yaml       # Default saved map
+└── ros2_ws/src/tb4_ouster_autonomy/
+    ├── config/
+    │   ├── create3_domain_bridge.yaml   # Domains 0 and 42 topic bridge
+    │   ├── nav2_params.yaml             # AMCL, planning, control, costmaps
+    │   └── slam_toolbox_params.yaml     # Mapping configuration
+    ├── launch/
+    │   ├── robot.launch.py              # Main diagnose/map/navigate entry point
+    │   ├── perception.launch.py         # Ouster, TF, filtering, scan relay
+    │   ├── mapping.launch.py            # Perception + SLAM Toolbox
+    │   └── navigate.launch.py           # Perception + composed Nav2
+    ├── rviz/                            # Mapping and navigation views
+    ├── tb4_ouster_autonomy/
+    │   ├── cloud_filter.py              # Self-filtered Ouster cloud
+    │   ├── bumper_contact_cloud.py      # Bumper events for local costmap
+    │   └── stationary_diagnostics.py    # Read-only health report
+    └── test/                             # Unit tests
+```
 
-Retired scripts and historical captures are archived outside this repository at:
-`/home/ivlaborin2/tb4_archive_2026-09-17/`
+`safety.launch.py`, `safety_authority_gate.py`, `overnight_monitor.py`, and the
+package-local `teleop_keyboard.py` are retained utilities but are not part of
+the normal `robot.launch.py` mapping or navigation paths.
 
-## Useful references
+## Verify changes
+
+After modifying the package, rebuild and run its tests:
+
+```bash
+source /opt/ros/humble/setup.bash
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
+colcon test-result --all --verbose
+```
+
+These commands verify the workspace and software tests. Hardware operation is
+verified separately with the stationary checks or a supervised mapping or
+navigation session.
+
+## References
 
 - [Create 3 documentation](https://iroboteducation.github.io/create3_docs/)
-- [Create 3 examples (Humble branch)](https://github.com/iRobotEducation/create3_examples/tree/humble)
-- [Ouster ROS 2 driver guide (ros2 branch)](https://github.com/ouster-lidar/ouster-ros/tree/ros2)
-- [ROS 2 Humble docs](https://docs.ros.org/en/humble/index.html)
-- [ROS 2 workspace tutorial](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Creating-A-Workspace/Creating-A-Workspace.html)
-- [ROS 2 package tutorial](https://docs.ros.org/en/humble/Tutorials/Beginner-Client-Libraries/Creating-Your-First-ROS2-Package.html)
-- [ROS 2 launch tutorial](https://docs.ros.org/en/humble/Tutorials/Intermediate/Launch/Launch-system.html)
+- [Create 3 examples, Humble branch](https://github.com/iRobotEducation/create3_examples/tree/humble)
+- [Ouster ROS 2 driver](https://github.com/ouster-lidar/ouster-ros/tree/ros2)
+- [ROS 2 Humble documentation](https://docs.ros.org/en/humble/index.html)
+- [Navigation2 documentation](https://docs.nav2.org/)
+- [SLAM Toolbox documentation](https://docs.ros.org/en/humble/p/slam_toolbox/)
 - [Ouster coordinate frames](https://docs.ouster.com/sensor-docs/firmware/coordinate-system)

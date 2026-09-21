@@ -8,7 +8,10 @@ Usage:
 """
 
 import os
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import (
+    get_package_prefix,
+    get_package_share_directory,
+)
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -26,9 +29,10 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('tb4_ouster_autonomy')
+    install_root = os.path.dirname(get_package_prefix('tb4_ouster_autonomy'))
     system_domain_bridge = '/opt/ros/humble/lib/domain_bridge/domain_bridge'
     vendor_domain_bridge = os.path.join(
-        '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install',
+        install_root,
         'domain_bridge_vendor/opt/ros/humble/lib/domain_bridge/domain_bridge',
     )
     domain_bridge = (
@@ -37,7 +41,7 @@ def generate_launch_description():
         else vendor_domain_bridge
     )
     bridge_library_path = os.path.join(
-        '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install',
+        install_root,
         'domain_bridge_vendor/opt/ros/humble/lib',
     )
 
@@ -53,7 +57,7 @@ def generate_launch_description():
 
     map_arg = DeclareLaunchArgument(
         'map',
-        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map.yaml',
+        default_value=os.path.join(pkg_share, 'maps', 'arena_map.yaml'),
         description='Full path to map yaml (navigate mode only)',
     )
 
