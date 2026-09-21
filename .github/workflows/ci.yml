@@ -79,7 +79,16 @@ jobs:
           cd ros2_ws
           PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
           colcon test-result --all --verbose
-          python3 -c "import xml.etree.ElementTree as ET; root = ET.parse('build/tb4_ouster_autonomy/pytest.xml').getroot(); tests = int(root.attrib.get('tests', '0')); assert tests > 0, 'No tests executed for tb4_ouster_autonomy'; print(f'pytest.xml reports {tests} tests executed')"
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          root = ET.parse('build/tb4_ouster_autonomy/pytest.xml').getroot()
+          suites = [root] if root.tag == 'testsuite' else root.findall('.//testsuite')
+          tests = sum(int(suite.attrib.get('tests', '0')) for suite in suites)
+
+          assert tests > 0, 'No tests executed for tb4_ouster_autonomy'
+          print(f'pytest.xml reports {tests} tests executed')
+          PY
 
       - name: Upload Test Results
         if: always()
