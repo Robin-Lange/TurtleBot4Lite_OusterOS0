@@ -1,8 +1,7 @@
-"""Launch mapping stack (perception, safety path, and SLAM Toolbox).
+"""Launch mapping stack: perception + SLAM Toolbox only.
 
-Uses asynchronous SLAM with 2D scan generated from the Ouster cloud.
-All manual teleop commands must be published to /teleop/cmd_vel and will
-be routed through the safety authority gate and collision monitor.
+Uses asynchronous SLAM with the 2D scan ring from the Ouster cloud.
+Teleop publishes directly to /cmd_vel (no safety gate or collision monitor).
 """
 
 import os
@@ -23,12 +22,6 @@ def generate_launch_description():
         )
     )
 
-    safety_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(pkg_share, 'launch', 'safety.launch.py')
-        )
-    )
-
     slam_node = Node(
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
@@ -39,6 +32,5 @@ def generate_launch_description():
 
     return LaunchDescription([
         perception_launch,
-        safety_launch,
         slam_node,
     ])

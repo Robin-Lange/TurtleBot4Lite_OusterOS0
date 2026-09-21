@@ -39,6 +39,16 @@ def generate_launch_description():
         default_value='30',
         description='Minimum reported distance in cm (30 or 50)',
     )
+    lidar_port_arg = DeclareLaunchArgument(
+        'lidar_port',
+        default_value='7502',
+        description='Port to which the sensor sends lidar data',
+    )
+    imu_port_arg = DeclareLaunchArgument(
+        'imu_port',
+        default_value='7503',
+        description='Port to which the sensor sends IMU data',
+    )
     start_driver_arg = DeclareLaunchArgument(
         'start_driver',
         default_value='true',
@@ -62,11 +72,14 @@ def generate_launch_description():
         ),
         launch_arguments={
             'sensor_hostname': LaunchConfiguration('sensor_hostname'),
+            'lidar_port': LaunchConfiguration('lidar_port'),
+            'imu_port': LaunchConfiguration('imu_port'),
             'lidar_mode': LaunchConfiguration('lidar_mode'),
             'timestamp_mode': 'TIME_FROM_ROS_TIME',
             'proc_mask': 'PCL|IMU|SCAN',
             'scan_ring': LaunchConfiguration('scan_ring'),
             'min_distance': LaunchConfiguration('min_distance'),
+            'use_system_default_qos': 'true',
             'viz': 'false',
         }.items(),
         condition=IfCondition(LaunchConfiguration('start_driver')),
@@ -101,6 +114,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         sensor_hostname_arg,
+        lidar_port_arg,
+        imu_port_arg,
         lidar_mode_arg,
         scan_ring_arg,
         min_distance_arg,

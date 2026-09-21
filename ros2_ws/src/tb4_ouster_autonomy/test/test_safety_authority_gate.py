@@ -45,7 +45,7 @@ class MockEnvironment(Node):
         self.last_bumper_cloud: Optional[PointCloud2] = None
 
         self.sub_cmd_safe = self.create_subscription(
-            Twist, "cmd_vel_safe", self.cmd_safe_cb, 10
+            Twist, "/cmd_vel_safe", self.cmd_safe_cb, 10
         )
         self.sub_status = self.create_subscription(
             String, "/safety/status", self.status_cb, 10

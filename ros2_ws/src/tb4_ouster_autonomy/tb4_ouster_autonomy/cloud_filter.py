@@ -41,6 +41,7 @@ class CloudFilter(Node):
         self.declare_parameter("ground_topic", "/ouster/ground_points")
         self.declare_parameter("publish_ground_cloud", True)
         self.declare_parameter("target_rate_hz", 10.0)
+        self.declare_parameter("use_reliable_qos", True)
 
         # Bounding box of robot envelope to filter self-returns
         # Approx +/-0.22m in X/Y, -0.25m to +0.06m in Z relative to os_lidar/laser_frame
@@ -78,6 +79,7 @@ class CloudFilter(Node):
         self.ground_topic = self.get_parameter("ground_topic").value
         self.publish_ground_cloud = self.get_parameter("publish_ground_cloud").value
         self.target_rate_hz = self.get_parameter("target_rate_hz").value
+        self.use_reliable_qos = bool(self.get_parameter("use_reliable_qos").value)
         self.min_period_s = 1.0 / self.target_rate_hz if self.target_rate_hz > 0 else 0.0
         self.last_published_time_s = 0.0
 
@@ -115,11 +117,15 @@ class CloudFilter(Node):
         self.prev_d = float(self.nominal_d)
 
         # Publishers & Subscriptions
+        # Subscribing with BEST_EFFORT (qos_profile_sensor_data) ensures compatibility
+        # with both BEST_EFFORT and RELIABLE publishers in ROS 2 / DDS
+        sub_qos = qos_profile_sensor_data
+
         self.sub_cloud = self.create_subscription(
             PointCloud2,
             self.input_topic,
             self.cloud_callback,
-            qos_profile_sensor_data,
+            sub_qos,
         )
 
         self.pub_cloud = self.create_publisher(
@@ -235,13 +241,17 @@ class CloudFilter(Node):
             if "x" not in field_names or "y" not in field_names or "z" not in field_names:
                 return
 
-            points_gen = pc2.read_points_numpy(in_msg, field_names=["x", "y", "z"])
-            if points_gen.size == 0:
+            raw_points = pc2.read_points(in_msg, field_names=["x", "y", "z"], skip_nans=True)
+            if len(raw_points) == 0:
                 return
 
-            x = points_gen[:, 0]
-            y = points_gen[:, 1]
-            z = points_gen[:, 2]
+            pts = np.column_stack((raw_points["x"], raw_points["y"], raw_points["z"])).astype(np.float32)
+            if pts.size == 0:
+                return
+
+            x = pts[:, 0]
+            y = pts[:, 1]
+            z = pts[:, 2]
 
             # 1. Range filter
             dist_sq = x * x + y * y + z * z
@@ -260,7 +270,7 @@ class CloudFilter(Node):
             )
             valid_mask &= ~in_self_box
 
-            valid_points = points_gen[valid_mask]
+            valid_points = pts[valid_mask]
             if valid_points.size == 0:
                 return
 

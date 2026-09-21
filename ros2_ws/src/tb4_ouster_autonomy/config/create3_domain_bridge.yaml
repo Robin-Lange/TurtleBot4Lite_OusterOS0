@@ -1,0 +1,39 @@
+name: create3_domain_bridge
+
+topics:
+  /odom:
+    type: nav_msgs/msg/Odometry
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: best_effort
+      depth: 10
+  /tf:
+    type: tf2_msgs/msg/TFMessage
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: reliable
+      depth: 100
+  /tf_static:
+    type: tf2_msgs/msg/TFMessage
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: reliable
+      durability: transient_local
+      depth: 1
+  /hazard_detection:
+    type: irobot_create_msgs/msg/HazardDetectionVector
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: best_effort
+      depth: 10
+  /cmd_vel:
+    type: geometry_msgs/msg/Twist
+    from_domain: 42
+    to_domain: 0
+    qos:
+      reliability: reliable
+      depth: 10

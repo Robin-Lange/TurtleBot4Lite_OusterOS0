@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             "stationary_diagnostics = tb4_ouster_autonomy.stationary_diagnostics:main",
             "cloud_filter = tb4_ouster_autonomy.cloud_filter:main",
+            "bumper_contact_cloud = tb4_ouster_autonomy.bumper_contact_cloud:main",
             "safety_authority_gate = tb4_ouster_autonomy.safety_authority_gate:main",
             "overnight_monitor = tb4_ouster_autonomy.overnight_monitor:main",
             "teleop_keyboard = tb4_ouster_autonomy.teleop_keyboard:main",

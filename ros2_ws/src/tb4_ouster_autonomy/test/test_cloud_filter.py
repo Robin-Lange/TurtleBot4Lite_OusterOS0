@@ -193,6 +193,31 @@ class TestCloudFilter(unittest.TestCase):
         )
         self.assertFalse(success, "RANSAC must reject vertical wall as ground")
 
+    def test_heterogeneous_fields_ouster_compatibility(self):
+        """PointCloud2 with mixed field datatypes (float32, uint16, uint32) is handled without error."""
+        from sensor_msgs.msg import PointField
+        header = Header()
+        header.stamp = self.test_node.get_clock().now().to_msg()
+        header.frame_id = "laser_frame"
+
+        # Simulates Ouster OS0 field structure
+        fields = [
+            PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+            PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+            PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+            PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
+            PointField(name="ring", offset=16, datatype=PointField.UINT16, count=1),
+            PointField(name="range", offset=18, datatype=PointField.UINT32, count=1),
+        ]
+        # Obstacle at x=1.5, y=0.0, z=0.1
+        pts = [[1.5, 0.0, 0.1, 100.0, 63, 1500]]
+        cloud_msg = pc2.create_cloud(header, fields, pts)
+
+        self.filter_node.last_published_time_s = 0.0
+        # Must execute without raising ValueError: All fields need to have the same datatype
+        self.filter_node.cloud_callback(cloud_msg)
+        self.assertGreater(self.filter_node.last_published_time_s, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

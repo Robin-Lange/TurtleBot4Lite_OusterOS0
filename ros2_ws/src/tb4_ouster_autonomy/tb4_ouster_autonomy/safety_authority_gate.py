@@ -57,6 +57,7 @@ class SafetyAuthorityGate(Node):
         self.declare_parameter("require_deadman_topic", True)
         self.declare_parameter("deadman_timeout_s", 0.50)
         self.declare_parameter("require_telemetry_for_motion", True)
+        self.declare_parameter("require_scan_for_teleop", False)
         self.declare_parameter("max_linear_speed", 0.15)
         self.declare_parameter("max_angular_speed", 0.50)
         self.declare_parameter("bump_backup_speed", 0.06)
@@ -78,6 +79,7 @@ class SafetyAuthorityGate(Node):
         self.require_deadman_topic = self.get_parameter("require_deadman_topic").value
         self.deadman_timeout_s = self.get_parameter("deadman_timeout_s").value
         self.require_telemetry_for_motion = self.get_parameter("require_telemetry_for_motion").value
+        self.require_scan_for_teleop = bool(self.get_parameter("require_scan_for_teleop").value)
         self.max_linear_speed = self.get_parameter("max_linear_speed").value
         self.max_angular_speed = self.get_parameter("max_angular_speed").value
         self.bump_backup_speed = self.get_parameter("bump_backup_speed").value
@@ -163,7 +165,7 @@ class SafetyAuthorityGate(Node):
         )
 
         # Publishers
-        self.pub_cmd_vel_safe = self.create_publisher(Twist, "cmd_vel_safe", 10)
+        self.pub_cmd_vel_safe = self.create_publisher(Twist, "/cmd_vel_safe", 10)
         self.pub_status = self.create_publisher(String, "/safety/status", 10)
         self.pub_bumper_cloud = self.create_publisher(
             PointCloud2, "/safety/bumper_contact_cloud", 10
@@ -416,14 +418,15 @@ class SafetyAuthorityGate(Node):
         cloud = pc2.create_cloud_xyz32(header, points)
         self.pub_bumper_cloud.publish(cloud)
 
-    def check_telemetry_freshness(self, now: float) -> tuple[bool, str]:
+    def check_telemetry_freshness(self, now: float, is_teleop: bool = False) -> tuple[bool, str]:
         """Check whether odom, dynamic TF, and scan have fresh data."""
         if self.last_odom_recv == 0.0 or (now - self.last_odom_recv) > self.odom_timeout_s:
             return False, f"Stale /odom (age {now - self.last_odom_recv:.3f}s > {self.odom_timeout_s}s)"
         if self.last_dynamic_tf_recv == 0.0 or (now - self.last_dynamic_tf_recv) > self.tf_timeout_s:
             return False, f"Stale dynamic /tf (age {now - self.last_dynamic_tf_recv:.3f}s > {self.tf_timeout_s}s)"
-        if self.last_scan_recv == 0.0 or (now - self.last_scan_recv) > self.scan_timeout_s:
-            return False, f"Stale /scan (age {now - self.last_scan_recv:.3f}s > {self.scan_timeout_s}s)"
+        if not is_teleop or self.require_scan_for_teleop:
+            if self.last_scan_recv == 0.0 or (now - self.last_scan_recv) > self.scan_timeout_s:
+                return False, f"Stale /scan (age {now - self.last_scan_recv:.3f}s > {self.scan_timeout_s}s)"
         return True, "Fresh"
 
     def clamp_twist(self, twist: Twist) -> Twist:
@@ -482,16 +485,17 @@ class SafetyAuthorityGate(Node):
                 return
 
         # 4. Check Deadman Switch & Heartbeat
-        deadman_expired = (
-            self.require_deadman_topic
-            and (self.last_deadman_time == 0.0 or (now - self.last_deadman_time) > self.deadman_timeout_s)
-        )
-        if self.require_deadman_topic and (not self.deadman_active or deadman_expired):
-            state = "INHIBITED_DEADMAN"
-            reason = "Deadman switch not pressed or heartbeat timed out"
-            self.pub_cmd_vel_safe.publish(out_twist)
-            self.publish_status(state, active_source, reason, now)
-            return
+        if self.require_deadman_topic:
+            deadman_expired = (
+                self.last_deadman_time == 0.0
+                or (now - self.last_deadman_time) > self.deadman_timeout_s
+            )
+            if not self.deadman_active or deadman_expired:
+                state = "INHIBITED_DEADMAN"
+                reason = "Deadman switch not pressed or heartbeat timed out"
+                self.pub_cmd_vel_safe.publish(out_twist)
+                self.publish_status(state, active_source, reason, now)
+                return
 
         # 4. Command Priority Selection: Manual Teleop > Nav2
         teleop_fresh = (
@@ -520,7 +524,9 @@ class SafetyAuthorityGate(Node):
                 or abs(desired_twist.angular.z) > 1e-4
             )
             if is_moving_cmd and self.require_telemetry_for_motion:
-                telemetry_ok, telemetry_reason = self.check_telemetry_freshness(now)
+                telemetry_ok, telemetry_reason = self.check_telemetry_freshness(
+                    now, is_teleop=(active_source == "TELEOP")
+                )
                 if not telemetry_ok:
                     state = "INHIBITED_STALE_TELEMETRY"
                     reason = telemetry_reason
