@@ -1,4 +1,4 @@
-# Create 3 + Ouster OS0 Autonomous Navigation
+# TurtleBot4Lite + Ouster OS0 Autonomous Navigation
 
 ROS 2 Humble workspace for **2D mapping, localization, and autonomous navigation** with an iRobot Create 3, an NVIDIA Jetson Orin Nano, and an Ouster OS0-128 Rev07 LiDAR.
 
