@@ -1,8 +1,10 @@
-"""Launch perception pipeline for Create 3 + Ouster OS0.
+"""Launch perception pipeline for Create 3 + Slamtec RPLIDAR S2 + Intel RealSense D435.
 
-Publishes mount static transforms and brings up the live Ouster OS0 sensor driver
-configured at 1024x10 (10 Hz) with scan_ring=63 to natively output 2D /ouster/scan
-and full 3D point cloud /ouster/points without software downsampling or extra conversion nodes.
+Publishes:
+- Static mount transforms (mount_tf.launch.py)
+- Slamtec RPLIDAR S2 driver (rplidar_node -> /scan at 10 Hz)
+- Intel RealSense D435 driver (realsense2_camera_node -> RGB, Depth, PointCloud)
+- Point cloud filtering for RealSense 3D obstacle avoidance
 """
 
 import os
@@ -10,119 +12,138 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
-from launch.launch_description_sources import AnyLaunchDescriptionSource, PythonLaunchDescriptionSource
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('tb4_ouster_autonomy')
-    ouster_share = get_package_share_directory('ouster_ros')
 
-    sensor_hostname_arg = DeclareLaunchArgument(
-        'sensor_hostname',
-        default_value='169.254.97.211',
-        description='Sensor hostname or IP address',
+    # LiDAR launch arguments
+    rplidar_port_arg = DeclareLaunchArgument(
+        'rplidar_port',
+        default_value='/dev/rplidar',
+        description='Serial device path for Slamtec RPLIDAR S2',
     )
-    lidar_mode_arg = DeclareLaunchArgument(
-        'lidar_mode',
-        default_value='1024x10',
-        description='Lidar resolution and rate: 1024x10 for native 10 Hz',
+    rplidar_baudrate_arg = DeclareLaunchArgument(
+        'rplidar_baudrate',
+        default_value='1000000',
+        description='Baud rate for RPLIDAR S2 (1000000)',
     )
-    scan_ring_arg = DeclareLaunchArgument(
-        'scan_ring',
-        default_value='63',
-        description='Ouster beam ring to extract as 2D LaserScan (-0.11 deg horizontal)',
+    rplidar_frame_arg = DeclareLaunchArgument(
+        'rplidar_frame',
+        default_value='laser',
+        description='Frame ID for RPLIDAR scan',
     )
-    min_distance_arg = DeclareLaunchArgument(
-        'min_distance',
-        default_value='30',
-        description='Minimum reported distance in cm (30 or 50)',
+    rplidar_scan_mode_arg = DeclareLaunchArgument(
+        'rplidar_scan_mode',
+        default_value='DenseBoost',
+        description='Scan mode for RPLIDAR S2 (DenseBoost)',
     )
-    lidar_port_arg = DeclareLaunchArgument(
-        'lidar_port',
-        default_value='7502',
-        description='Port to which the sensor sends lidar data',
-    )
-    imu_port_arg = DeclareLaunchArgument(
-        'imu_port',
-        default_value='7503',
-        description='Port to which the sensor sends IMU data',
-    )
-    start_driver_arg = DeclareLaunchArgument(
-        'start_driver',
+    start_lidar_arg = DeclareLaunchArgument(
+        'start_lidar',
         default_value='true',
-        description='Whether to start the ouster_ros sensor driver',
-    )
-    relay_scan_arg = DeclareLaunchArgument(
-        'relay_to_scan',
-        default_value='true',
-        description='Whether to relay /ouster/scan to /scan for standard tools',
+        description='Whether to start the RPLIDAR S2 driver',
     )
 
+    # RealSense launch arguments
+    start_camera_arg = DeclareLaunchArgument(
+        'start_camera',
+        default_value='true',
+        description='Whether to start the Intel RealSense D435 driver',
+    )
+    enable_pointcloud_arg = DeclareLaunchArgument(
+        'enable_pointcloud',
+        default_value='true',
+        description='Whether to enable RealSense PointCloud2 publishing',
+    )
+
+    # Include static mount transforms (base_link -> laser, base_link -> camera_link)
     mount_tf_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_share, 'launch', 'mount_tf.launch.py')
         )
     )
 
-    ouster_driver = IncludeLaunchDescription(
-        AnyLaunchDescriptionSource(
-            os.path.join(ouster_share, 'launch', 'sensor.launch.xml')
-        ),
-        launch_arguments={
-            'sensor_hostname': LaunchConfiguration('sensor_hostname'),
-            'lidar_port': LaunchConfiguration('lidar_port'),
-            'imu_port': LaunchConfiguration('imu_port'),
-            'lidar_mode': LaunchConfiguration('lidar_mode'),
-            'timestamp_mode': 'TIME_FROM_ROS_TIME',
-            'proc_mask': 'PCL|IMU|SCAN',
-            'scan_ring': LaunchConfiguration('scan_ring'),
-            'min_distance': LaunchConfiguration('min_distance'),
-            'use_system_default_qos': 'true',
-            'viz': 'false',
-        }.items(),
-        condition=IfCondition(LaunchConfiguration('start_driver')),
+    # RPLIDAR S2 driver node
+    rplidar_node = Node(
+        package='rplidar_ros',
+        executable='rplidar_node',
+        name='rplidar_node',
+        parameters=[{
+            'channel_type': 'serial',
+            'serial_port': LaunchConfiguration('rplidar_port'),
+            'serial_baudrate': LaunchConfiguration('rplidar_baudrate'),
+            'frame_id': LaunchConfiguration('rplidar_frame'),
+            'inverted': False,
+            'angle_compensate': True,
+            'scan_mode': LaunchConfiguration('rplidar_scan_mode'),
+        }],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_lidar')),
     )
 
+    # Intel RealSense D435 driver node
+    realsense_node = Node(
+        package='realsense2_camera',
+        executable='realsense2_camera_node',
+        name='camera',
+        namespace='camera',
+        parameters=[{
+            'camera_name': 'camera',
+            'publish_tf': True,
+            'pointcloud.enable': LaunchConfiguration('enable_pointcloud'),
+            'rgb_camera.color_profile': '640x480x30',
+            'depth_module.depth_profile': '640x480x30',
+            'depth_module.infra_profile': '640x480x30',
+            'align_depth.enable': True,
+            'enable_sync': True,
+            'initial_reset': False,
+            'clip_distance': 4.0,
+        }],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('start_camera')),
+    )
+
+    # Cloud filter node for RealSense 3D point cloud
     cloud_filter_node = Node(
         package='tb4_ouster_autonomy',
         executable='cloud_filter',
         name='cloud_filter',
         output='screen',
         parameters=[{
-            'input_topic': '/ouster/points',
-            'output_topic': '/ouster/cloud_filtered',
-            'target_rate_hz': 10.0,
-            'self_box_min_x': -0.22,
-            'self_box_max_x': 0.22,
-            'self_box_min_y': -0.22,
-            'self_box_max_y': 0.22,
-            'self_box_min_z': -0.25,
-            'self_box_max_z': 0.06,
+            'input_topic': '/camera/camera/depth/color/points',
+            'output_topic': '/camera/cloud_filtered',
+            'ground_topic': '/camera/ground_points',
+            'publish_ground_cloud': False,
+            'target_rate_hz': 15.0,
+            'min_range': 0.25,
+            'max_range': 4.0,
+            'min_height': 0.04,
+            'max_height': 1.5,
+            'enable_ransac': False,
+            'self_box_min_x': -0.05,
+            'self_box_max_x': 0.18,
+            'self_box_min_y': -0.18,
+            'self_box_max_y': 0.18,
+            'self_box_min_z': -0.15,
+            'self_box_max_z': 0.15,
         }],
-    )
-
-    scan_relay_node = Node(
-        package='topic_tools',
-        executable='relay',
-        name='scan_relay',
-        output='screen',
-        arguments=['/ouster/scan', '/scan'],
-        condition=IfCondition(LaunchConfiguration('relay_to_scan')),
+        condition=IfCondition(LaunchConfiguration('enable_pointcloud')),
     )
 
     return LaunchDescription([
-        sensor_hostname_arg,
-        lidar_port_arg,
-        imu_port_arg,
-        lidar_mode_arg,
-        scan_ring_arg,
-        min_distance_arg,
-        start_driver_arg,
-        relay_scan_arg,
+        rplidar_port_arg,
+        rplidar_baudrate_arg,
+        rplidar_frame_arg,
+        rplidar_scan_mode_arg,
+        start_lidar_arg,
+        start_camera_arg,
+        enable_pointcloud_arg,
         mount_tf_launch,
-        ouster_driver,
+        rplidar_node,
+        realsense_node,
         cloud_filter_node,
-        scan_relay_node,
     ])
+

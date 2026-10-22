@@ -1,35 +1,59 @@
-"""Publish the provisional, measured Create 3-to-OS0 mount transform.
+"""Publish measured Create 3 mount transforms for RPLIDAR S2 and RealSense D435.
 
-Assumes the plate logo is directly above the Create 3 rotation center,
-the sensor is level, and its cable points toward the robot rear.
-Also publishes the optical origin frame laser_frame at +38.195 mm above
-os_sensor with zero rotation (horizontal axes aligned with base_link).
+Publishes:
+- base_link -> laser (Slamtec RPLIDAR S2 mounted on top plate)
+- base_link -> camera_link (Intel RealSense D435 mounted at robot front)
 """
 
 from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
+    laser_x = LaunchConfiguration('laser_x', default='0.0')
+    laser_y = LaunchConfiguration('laser_y', default='0.0')
+    laser_z = LaunchConfiguration('laser_z', default='0.175')
+    laser_yaw = LaunchConfiguration('laser_yaw', default='0.0')
+
+    camera_x = LaunchConfiguration('camera_x', default='0.14')
+    camera_y = LaunchConfiguration('camera_y', default='0.0')
+    camera_z = LaunchConfiguration('camera_z', default='0.12')
+    camera_yaw = LaunchConfiguration('camera_yaw', default='0.0')
+
     return LaunchDescription([
+        DeclareLaunchArgument('laser_x', default_value='0.0', description='LiDAR X offset from base_link (m)'),
+        DeclareLaunchArgument('laser_y', default_value='0.0', description='LiDAR Y offset from base_link (m)'),
+        DeclareLaunchArgument('laser_z', default_value='0.175', description='LiDAR Z offset from base_link (m)'),
+        DeclareLaunchArgument('laser_yaw', default_value='0.0', description='LiDAR Yaw offset (rad)'),
+
+        DeclareLaunchArgument('camera_x', default_value='0.14', description='Camera X offset from base_link (m)'),
+        DeclareLaunchArgument('camera_y', default_value='0.0', description='Camera Y offset from base_link (m)'),
+        DeclareLaunchArgument('camera_z', default_value='0.12', description='Camera Z offset from base_link (m)'),
+        DeclareLaunchArgument('camera_yaw', default_value='0.0', description='Camera Yaw offset (rad)'),
+
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
-            name='base_to_os_sensor',
+            name='base_to_laser',
             arguments=[
-                '--x', '0.005', '--y', '-0.010', '--z', '0.133',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'base_link', '--child-frame-id', 'os_sensor',
+                '--x', laser_x, '--y', laser_y, '--z', laser_z,
+                '--roll', '0', '--pitch', '0', '--yaw', laser_yaw,
+                '--frame-id', 'base_link', '--child-frame-id', 'laser',
             ],
+            output='screen',
         ),
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
-            name='os_sensor_to_laser_frame',
+            name='base_to_camera_link',
             arguments=[
-                '--x', '0', '--y', '0', '--z', '0.038195',
-                '--roll', '0', '--pitch', '0', '--yaw', '0',
-                '--frame-id', 'os_sensor', '--child-frame-id', 'laser_frame',
+                '--x', camera_x, '--y', camera_y, '--z', camera_z,
+                '--roll', '0', '--pitch', '0', '--yaw', camera_yaw,
+                '--frame-id', 'base_link', '--child-frame-id', 'camera_link',
             ],
+            output='screen',
         ),
     ])
+

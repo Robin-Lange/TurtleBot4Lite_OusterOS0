@@ -64,7 +64,7 @@ def generate_launch_description():
     start_sensor_arg = DeclareLaunchArgument(
         'start_sensor',
         default_value='false',
-        description='Whether to start the ouster_ros sensor driver (may reinitialize sensor)',
+        description='Whether to start the RPLIDAR S2 and RealSense D435 drivers',
     )
 
     rviz_arg = DeclareLaunchArgument(
@@ -87,7 +87,10 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(pkg_share, 'launch', 'perception.launch.py')
         ),
-        launch_arguments={'start_driver': LaunchConfiguration('start_sensor')}.items(),
+        launch_arguments={
+            'start_lidar': LaunchConfiguration('start_sensor'),
+            'start_camera': LaunchConfiguration('start_sensor'),
+        }.items(),
         condition=IfCondition(is_diagnose),
     )
 

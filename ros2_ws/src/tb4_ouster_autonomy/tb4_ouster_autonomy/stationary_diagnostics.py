@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Read-only stationary ROS and Ouster timing/rate diagnostic.
+"""Read-only stationary ROS 2 diagnostics for RPLIDAR S2, RealSense D435, and Create 3.
 
-This program subscribes only. It never configures the sensor or publishes ROS data.
+This program subscribes only. It never commands motion or publishes ROS data.
 Source the ROS 2 underlay and this repository's workspace overlay before use.
 """
 
@@ -11,7 +11,6 @@ import math
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
-from urllib.request import urlopen
 
 import rclpy
 from rclpy.node import Node
@@ -19,7 +18,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.utilities import remove_ros_args
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import PointCloud2, LaserScan, Imu
+from sensor_msgs.msg import PointCloud2, LaserScan, Imu, Image, CameraInfo
 from tf2_msgs.msg import TFMessage
 from irobot_create_msgs.msg import DockStatus, HazardDetectionVector
 
@@ -28,10 +27,11 @@ TOPICS = {
     "/odom": Odometry,
     "/tf": TFMessage,
     "/tf_static": TFMessage,
-    "/ouster/points": PointCloud2,
-    "/ouster/imu": Imu,
-    "/ouster/scan": LaserScan,
     "/scan": LaserScan,
+    "/camera/camera/color/image_raw": Image,
+    "/camera/camera/depth/image_rect_raw": Image,
+    "/camera/camera/depth/color/points": PointCloud2,
+    "/camera/cloud_filtered": PointCloud2,
     "/dock_status": DockStatus,
     "/hazard_detection": HazardDetectionVector,
 }
@@ -101,7 +101,6 @@ class StationaryObserver(Node):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seconds", type=float, default=10.0)
-    parser.add_argument("--sensor-url", default="http://169.254.97.211")
     parser.add_argument(
         "--topics", default=",".join(TOPICS),
         help="comma-separated topics to observe; omit high-rate topics for focused rate tests",
@@ -111,18 +110,9 @@ def main():
         parser.error("--seconds must be finite and positive")
     topics = [topic.strip() for topic in args.topics.split(",") if topic.strip()]
     if not topics or any(topic not in TOPICS for topic in topics):
-        parser.error("--topics must name one or more supported topics")
+        parser.error(f"--topics must name one or more supported topics from: {list(TOPICS.keys())}")
 
     report = {"host_utc_start": datetime.now(timezone.utc).isoformat()}
-    for name, path in (
-        ("sensor_info", "/api/v1/sensor/metadata/sensor_info"),
-        ("sensor_config", "/api/v1/sensor/config"),
-    ):
-        try:
-            with urlopen(args.sensor_url + path, timeout=3) as response:
-                report[name] = json.load(response)
-        except (OSError, ValueError) as exc:
-            report[name] = {"error": str(exc)}
 
     rclpy.init()
     observer = StationaryObserver(topics)
@@ -141,3 +131,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

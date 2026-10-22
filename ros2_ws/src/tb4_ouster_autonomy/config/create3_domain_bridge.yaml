@@ -30,6 +30,20 @@ topics:
     qos:
       reliability: best_effort
       depth: 10
+  /dock_status:
+    type: irobot_create_msgs/msg/DockStatus
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: best_effort
+      depth: 10
+  /battery_state:
+    type: sensor_msgs/msg/BatteryState
+    from_domain: 0
+    to_domain: 42
+    qos:
+      reliability: best_effort
+      depth: 10
   /cmd_vel:
     type: geometry_msgs/msg/Twist
     from_domain: 42
@@ -37,3 +51,4 @@ topics:
     qos:
       reliability: reliable
       depth: 10
+
