@@ -8,18 +8,13 @@ Usage:
 """
 
 import os
-from ament_index_python.packages import (
-    get_package_prefix,
-    get_package_share_directory,
-)
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    ExecuteProcess,
     IncludeLaunchDescription,
     LogInfo,
     SetEnvironmentVariable,
-    UnsetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -29,21 +24,6 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_share = get_package_share_directory('tb4_ouster_autonomy')
-    install_root = os.path.dirname(get_package_prefix('tb4_ouster_autonomy'))
-    system_domain_bridge = '/opt/ros/humble/lib/domain_bridge/domain_bridge'
-    vendor_domain_bridge = os.path.join(
-        install_root,
-        'domain_bridge_vendor/opt/ros/humble/lib/domain_bridge/domain_bridge',
-    )
-    domain_bridge = (
-        system_domain_bridge
-        if os.path.exists(system_domain_bridge)
-        else vendor_domain_bridge
-    )
-    bridge_library_path = os.path.join(
-        install_root,
-        'domain_bridge_vendor/opt/ros/humble/lib',
-    )
 
     mode_arg = DeclareLaunchArgument(
         'mode',
@@ -64,7 +44,7 @@ def generate_launch_description():
     start_sensor_arg = DeclareLaunchArgument(
         'start_sensor',
         default_value='false',
-        description='Whether to start the RPLIDAR S2 and RealSense D435 drivers',
+        description='Whether to start the RPLIDAR S2 and RealSense D455 drivers',
     )
 
     rviz_arg = DeclareLaunchArgument(
@@ -134,22 +114,6 @@ def generate_launch_description():
         condition=IfCondition(is_navigate),
     )
 
-    create3_bridge = ExecuteProcess(
-        cmd=[
-            domain_bridge,
-            '--wait-for-publisher',
-            'false',
-            os.path.join(pkg_share, 'config', 'create3_domain_bridge.yaml'),
-        ],
-        name='create3_domain_bridge',
-        output='screen',
-        additional_env={
-            'LD_LIBRARY_PATH': bridge_library_path + ':' + os.environ.get('LD_LIBRARY_PATH', ''),
-            'ROS_LOCALHOST_ONLY': '0',
-        },
-        condition=IfCondition(is_map_or_navigate),
-    )
-
     # 4. RViz — different config per mode
     rviz_map_node = Node(
         package='rviz2',
@@ -194,9 +158,13 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        SetEnvironmentVariable('ROS_DOMAIN_ID', '42'),
+        SetEnvironmentVariable('ROS_DOMAIN_ID', '0'),
+        SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'),
+        SetEnvironmentVariable(
+            'FASTRTPS_DEFAULT_PROFILES_FILE',
+            '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_create3.xml',
+        ),
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
-        UnsetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE'),
         mode_arg,
         map_arg,
         start_sensor_arg,
@@ -210,7 +178,6 @@ def generate_launch_description():
         mapping_launch,
         # navigate
         navigate_info,
-        create3_bridge,
         navigate_launch,
         # rviz
         rviz_diagnose_node,

@@ -1,7 +1,7 @@
-"""Launch mapping stack: perception + SLAM Toolbox only.
+"""Launch mapping stack: perception + SLAM Toolbox.
 
-Uses asynchronous SLAM with the 2D scan ring from the Ouster cloud.
-Teleop publishes directly to /cmd_vel (no safety gate or collision monitor).
+Uses asynchronous SLAM with the 2D scan from Slamtec RPLIDAR S2 and
+fuses 3D obstacle avoidance from Intel RealSense D455.
 """
 
 import os

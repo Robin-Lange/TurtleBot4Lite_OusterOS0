@@ -1,4 +1,4 @@
-"""Launch composed Nav2 navigation with Ouster perception and bumper coverage.
+"""Launch composed Nav2 navigation with RPLIDAR S2 + RealSense D455 perception and bumper coverage.
 
 All Nav2 lifecycle nodes share one component container. This keeps DDS
 participant usage low enough for the memory-constrained Create 3 base while

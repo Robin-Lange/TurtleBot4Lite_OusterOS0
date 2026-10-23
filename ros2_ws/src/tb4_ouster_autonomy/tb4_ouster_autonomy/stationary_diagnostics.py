@@ -18,13 +18,17 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.utilities import remove_ros_args
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import PointCloud2, LaserScan, Imu, Image, CameraInfo
+from sensor_msgs.msg import BatteryState, CameraInfo, Image, Imu, LaserScan, PointCloud2
 from tf2_msgs.msg import TFMessage
 from irobot_create_msgs.msg import DockStatus, HazardDetectionVector
 
 
 TOPICS = {
     "/odom": Odometry,
+    "/imu": Imu,
+    "/battery_state": BatteryState,
+    "/dock_status": DockStatus,
+    "/hazard_detection": HazardDetectionVector,
     "/tf": TFMessage,
     "/tf_static": TFMessage,
     "/scan": LaserScan,
@@ -32,8 +36,6 @@ TOPICS = {
     "/camera/camera/depth/image_rect_raw": Image,
     "/camera/camera/depth/color/points": PointCloud2,
     "/camera/cloud_filtered": PointCloud2,
-    "/dock_status": DockStatus,
-    "/hazard_detection": HazardDetectionVector,
 }
 
 

@@ -1,9 +1,9 @@
-"""Launch perception pipeline for Create 3 + Slamtec RPLIDAR S2 + Intel RealSense D435.
+"""Launch perception pipeline for Create 3 + Slamtec RPLIDAR S2 + Intel RealSense D455.
 
 Publishes:
 - Static mount transforms (mount_tf.launch.py)
 - Slamtec RPLIDAR S2 driver (rplidar_node -> /scan at 10 Hz)
-- Intel RealSense D435 driver (realsense2_camera_node -> RGB, Depth, PointCloud)
+- Intel RealSense D455 driver (realsense2_camera_node -> RGB, Depth, PointCloud)
 - Point cloud filtering for RealSense 3D obstacle avoidance
 """
 
@@ -51,7 +51,7 @@ def generate_launch_description():
     start_camera_arg = DeclareLaunchArgument(
         'start_camera',
         default_value='true',
-        description='Whether to start the Intel RealSense D435 driver',
+        description='Whether to start the Intel RealSense D455 driver',
     )
     enable_pointcloud_arg = DeclareLaunchArgument(
         'enable_pointcloud',
@@ -84,7 +84,7 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('start_lidar')),
     )
 
-    # Intel RealSense D435 driver node
+    # Intel RealSense D455 driver node
     realsense_node = Node(
         package='realsense2_camera',
         executable='realsense2_camera_node',
@@ -94,13 +94,14 @@ def generate_launch_description():
             'camera_name': 'camera',
             'publish_tf': True,
             'pointcloud.enable': LaunchConfiguration('enable_pointcloud'),
+            'pointcloud__neon_.enable': LaunchConfiguration('enable_pointcloud'),
             'rgb_camera.color_profile': '640x480x30',
             'depth_module.depth_profile': '640x480x30',
             'depth_module.infra_profile': '640x480x30',
             'align_depth.enable': True,
             'enable_sync': True,
             'initial_reset': False,
-            'clip_distance': 4.0,
+            'clip_distance': 6.0,
         }],
         output='screen',
         condition=IfCondition(LaunchConfiguration('start_camera')),
@@ -118,17 +119,17 @@ def generate_launch_description():
             'ground_topic': '/camera/ground_points',
             'publish_ground_cloud': False,
             'target_rate_hz': 15.0,
-            'min_range': 0.25,
-            'max_range': 4.0,
+            'min_range': 0.35,
+            'max_range': 6.0,
             'min_height': 0.04,
             'max_height': 1.5,
             'enable_ransac': False,
-            'self_box_min_x': -0.05,
-            'self_box_max_x': 0.18,
-            'self_box_min_y': -0.18,
-            'self_box_max_y': 0.18,
-            'self_box_min_z': -0.15,
-            'self_box_max_z': 0.15,
+            'self_box_min_x': -0.10,
+            'self_box_max_x': 0.25,
+            'self_box_min_y': -0.20,
+            'self_box_max_y': 0.20,
+            'self_box_min_z': -0.20,
+            'self_box_max_z': 0.20,
         }],
         condition=IfCondition(LaunchConfiguration('enable_pointcloud')),
     )
