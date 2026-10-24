@@ -101,6 +101,28 @@ def save_occupancy_grid_to_files(grid: OccupancyGrid, map_prefix: str) -> Tuple[
     with open(yaml_path, "w", encoding="utf-8") as f:
         f.write(yaml_content)
 
+    # Also sync to install share directory if saving to the repo root arena_map
+    install_maps_dir = os.path.join(
+        parent_dir,
+        "ros2_ws",
+        "install",
+        "tb4_ouster_autonomy",
+        "share",
+        "tb4_ouster_autonomy",
+        "maps",
+    )
+    if os.path.isdir(install_maps_dir) and os.path.basename(map_prefix) == "arena_map":
+        try:
+            with open(os.path.join(install_maps_dir, pgm_basename), "wb") as f_inst:
+                f_inst.write(header)
+                f_inst.write(pixel_bytes)
+            with open(
+                os.path.join(install_maps_dir, "arena_map.yaml"), "w", encoding="utf-8"
+            ) as f_yaml_inst:
+                f_yaml_inst.write(yaml_content)
+        except OSError:
+            pass
+
     return pgm_path, yaml_path
 
 
