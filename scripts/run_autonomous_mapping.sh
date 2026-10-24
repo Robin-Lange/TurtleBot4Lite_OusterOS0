@@ -31,10 +31,22 @@ echo " Target Map Output : ${MAP_PREFIX}.yaml & ${MAP_PREFIX}.pgm"
 echo " Stop & Save Any Time: Press Ctrl+C"
 echo "=========================================================="
 
+CLEANUP_DONE=0
 cleanup() {
+    if [ "$CLEANUP_DONE" -eq 1 ]; then
+        return
+    fi
+    CLEANUP_DONE=1
+    trap - EXIT INT TERM
     echo ""
     echo "[Auto-Map] Stopping robot wheels and finalizing saved map..."
-    ros2 topic pub --once /cmd_vel geometry_msgs/msg/Twist "{}" >/dev/null 2>&1 || true
+    if [ -n "${LAUNCH_PID:-}" ] && kill -0 "${LAUNCH_PID}" 2>/dev/null; then
+        kill -INT "${LAUNCH_PID}" 2>/dev/null || true
+        sleep 2
+        kill -TERM "${LAUNCH_PID}" 2>/dev/null || true
+    fi
+    timeout 2 ros2 topic pub --once -w 0 /cmd_vel geometry_msgs/msg/Twist "{}" >/dev/null 2>&1 || true
+    pkill -f "autonomous_explorer|component_container_isolated|async_slam_toolbox_node|realsense2_camera_node|rplidar_node|cloud_filter|bumper_contact_cloud" 2>/dev/null || true
     if [ -f "${MAP_PREFIX}.yaml" ] && [ -f "${MAP_PREFIX}.pgm" ]; then
         if [ -d "${INSTALL_MAPS_DIR}" ]; then
             cp -f "${MAP_PREFIX}.yaml" "${INSTALL_MAPS_DIR}/arena_map.yaml" 2>/dev/null || true
@@ -52,4 +64,6 @@ ros2 launch tb4_ouster_autonomy robot.launch.py \
     mode:=auto_map \
     rviz:=false \
     auto_undock:=true \
-    map_output_prefix:="${MAP_PREFIX}"
+    map_output_prefix:="${MAP_PREFIX}" &
+LAUNCH_PID=$!
+wait "${LAUNCH_PID}" || true

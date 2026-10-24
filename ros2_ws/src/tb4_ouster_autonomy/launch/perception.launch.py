@@ -100,7 +100,7 @@ def generate_launch_description():
             'depth_module.infra_profile': '640x480x30',
             'align_depth.enable': True,
             'enable_sync': True,
-            'initial_reset': True,
+            'initial_reset': False,
             'clip_distance': 6.0,
         }],
         output='screen',

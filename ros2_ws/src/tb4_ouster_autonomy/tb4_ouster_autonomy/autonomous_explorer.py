@@ -579,19 +579,26 @@ class AutonomousExplorer(Node):
             self.finish_exploration("max_duration_reached")
             return
 
-        # Phase 1: Wait for sensors (/scan and /odom)
+        # Phase 1: Wait for sensors (/scan and /odom, plus /dock_status if auto_undock enabled)
         if self.phase == "WAIT_SENSORS":
-            if self.scan_received and self.odom_received:
-                if self.auto_undock and self.is_docked is True:
+            dock_ready = (not self.auto_undock) or (self.is_docked is not None) or ((now - self.phase_start_time) > 3.5)
+            if self.scan_received and self.odom_received and dock_ready:
+                if self.auto_undock and (self.is_docked is True or self.is_docked is None):
                     self.phase = "UNDOCKING"
                     self.phase_start_time = now
-                    self.get_logger().info("Robot is docked. Initiating automatic undock...")
+                    self.get_logger().info(
+                        f"Sensors online (is_docked={self.is_docked}). Initiating automatic undock..."
+                    )
                 else:
                     self.phase = "INITIAL_SPIN"
                     self.phase_start_time = now
                     self.get_logger().info(
-                        "Sensors online. Performing initial 360° scan spin to seed SLAM map..."
+                        "Sensors online (already undocked). Performing initial 360° scan spin to seed SLAM map..."
                     )
+            elif int((now - self.phase_start_time) * 4) % 12 == 0:
+                self.get_logger().info(
+                    f"Waiting for sensors: scan={self.scan_received}, odom={self.odom_received}, is_docked={self.is_docked}"
+                )
             return
 
         # Phase 2: Auto-Undock if starting on dock
@@ -677,15 +684,10 @@ def main(args=None):
     rclpy.init(args=args)
     node = AutonomousExplorer()
 
-    def _sig_handler(signum, frame):
-        node.get_logger().info(
-            f"Signal {signum} received (user abort/Ctrl+C) — stopping robot and saving map..."
-        )
-        node.finish_exploration("user_abort_signal")
+    def _sig_term_handler(signum, frame):
         raise KeyboardInterrupt()
 
-    signal.signal(signal.SIGINT, _sig_handler)
-    signal.signal(signal.SIGTERM, _sig_handler)
+    signal.signal(signal.SIGTERM, _sig_term_handler)
 
     try:
         rclpy.spin(node)
@@ -693,11 +695,19 @@ def main(args=None):
         pass
     finally:
         if not node.map_saved_on_exit:
-            node.finish_exploration("node_shutdown")
-        node.stop_robot()
-        node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+            if node.latest_map is not None:
+                try:
+                    save_occupancy_grid_to_files(node.latest_map, node.map_output_prefix)
+                    node.map_saved_on_exit = True
+                except Exception:
+                    pass
+        try:
+            if rclpy.ok():
+                node.stop_robot()
+                node.destroy_node()
+                rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
