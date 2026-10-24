@@ -66,11 +66,17 @@ def generate_launch_description():
         )
     )
 
+    sensor_dds_env = {
+        'FASTRTPS_DEFAULT_PROFILES_FILE':
+            '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_sensors.xml'
+    }
+
     # RPLIDAR S2 driver node
     rplidar_node = Node(
         package='rplidar_ros',
         executable='rplidar_node',
         name='rplidar_node',
+        additional_env=sensor_dds_env,
         parameters=[{
             'channel_type': 'serial',
             'serial_port': LaunchConfiguration('rplidar_port'),
@@ -90,14 +96,16 @@ def generate_launch_description():
         executable='realsense2_camera_node',
         name='camera',
         namespace='camera',
+        additional_env=sensor_dds_env,
         parameters=[{
             'camera_name': 'camera',
             'publish_tf': True,
             'pointcloud.enable': LaunchConfiguration('enable_pointcloud'),
             'pointcloud__neon_.enable': LaunchConfiguration('enable_pointcloud'),
-            'rgb_camera.color_profile': '640x480x30',
-            'depth_module.depth_profile': '640x480x30',
-            'depth_module.infra_profile': '640x480x30',
+            'decimation_filter.enable': True,
+            'rgb_camera.color_profile': '640x480x15',
+            'depth_module.depth_profile': '640x480x15',
+            'depth_module.infra_profile': '640x480x15',
             'align_depth.enable': True,
             'enable_sync': True,
             'initial_reset': False,
@@ -112,6 +120,7 @@ def generate_launch_description():
         package='tb4_ouster_autonomy',
         executable='cloud_filter',
         name='cloud_filter',
+        additional_env=sensor_dds_env,
         output='screen',
         parameters=[{
             'input_topic': '/camera/camera/depth/color/points',

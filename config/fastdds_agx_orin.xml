@@ -5,14 +5,12 @@
             <transport_descriptor>
                 <transport_id>udp_transport</transport_id>
                 <type>UDPv4</type>
-                <sendBufferSize>65536</sendBufferSize>
-                <receiveBufferSize>65536</receiveBufferSize>
+                <sendBufferSize>4194304</sendBufferSize>
+                <receiveBufferSize>4194304</receiveBufferSize>
                 <maxMessageSize>8192</maxMessageSize>
                 <interfaceWhiteList>
-                    <!-- AGX Orin USB-to-Ethernet Private Robot Link -->
-                    <address>192.168.0.10</address>
-                    <!-- Local loopback for intra-AGX communication -->
                     <address>127.0.0.1</address>
+                    <address>192.168.0.10</address>
                 </interfaceWhiteList>
             </transport_descriptor>
         </transport_descriptors>
@@ -23,20 +21,17 @@
                 </userTransports>
                 <useBuiltinTransports>false</useBuiltinTransports>
                 <builtin>
-                    <!-- Pure Unicast Discovery & Dataflow -->
-                    <metatrafficUnicastLocatorList>
-                        <locator>
-                            <udpv4/>
-                        </locator>
-                    </metatrafficUnicastLocatorList>
                     <initialPeersList>
-                        <!-- Localhost nodes on Jetson AGX Orin -->
                         <locator>
                             <udpv4>
                                 <address>127.0.0.1</address>
                             </udpv4>
                         </locator>
-                        <!-- Robot Jetson Orin Nano over TP-Link Wi-Fi -->
+                        <locator>
+                            <udpv4>
+                                <address>192.168.0.151</address>
+                            </udpv4>
+                        </locator>
                         <locator>
                             <udpv4>
                                 <address>192.168.0.100</address>

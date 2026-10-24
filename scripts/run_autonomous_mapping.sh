@@ -46,7 +46,7 @@ cleanup() {
         kill -TERM "${LAUNCH_PID}" 2>/dev/null || true
     fi
     timeout 2 ros2 topic pub --once -w 0 /cmd_vel geometry_msgs/msg/Twist "{}" >/dev/null 2>&1 || true
-    pkill -f "autonomous_explorer|component_container_isolated|async_slam_toolbox_node|realsense2_camera_node|rplidar_node|cloud_filter|bumper_contact_cloud" 2>/dev/null || true
+    pkill -f "autonomous_explorer|component_container|async_slam_toolbox_node|realsense2_camera_node|rplidar_node|cloud_filter|bumper_contact_cloud" 2>/dev/null || true
     if [ -f "${MAP_PREFIX}.yaml" ] && [ -f "${MAP_PREFIX}.pgm" ]; then
         if [ -d "${INSTALL_MAPS_DIR}" ]; then
             cp -f "${MAP_PREFIX}.yaml" "${INSTALL_MAPS_DIR}/arena_map.yaml" 2>/dev/null || true

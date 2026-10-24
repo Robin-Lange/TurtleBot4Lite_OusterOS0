@@ -118,10 +118,13 @@ def main(args=None):
     node = BumperContactCloud()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
-        node.destroy_node()
+        try:
+            node.destroy_node()
+        except Exception:
+            pass
         rclpy.try_shutdown()
 
 
