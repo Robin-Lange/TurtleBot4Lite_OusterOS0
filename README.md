@@ -244,9 +244,24 @@ Expected topic streams:
 - `/battery_state`: ~1 Hz (Create 3 battery telemetry)
 - `/dock_status`: ~1 Hz (`is_docked: true`)
 
-### 3. Mapping Workflow (SLAM Toolbox)
+### 5. Autonomous Frontier Mapping (Headless SSH — No Manual Driving Needed)
 
-When ready to map in an environment:
+Once the Jetson Orin Nano is placed inside the Create 3 cargo bay (with monitor, keyboard, and wall Ethernet unplugged), SSH into the robot from the Jetson AGX Orin and run:
+
+```bash
+cd ~/TurtleBot4Lite_OusterOS0
+./scripts/run_autonomous_mapping.sh
+```
+
+What this does automatically:
+1. **Auto-Undocks** the Create 3 if it is currently on the charging dock.
+2. **Performs a 360° initial scan** to seed `slam_toolbox` and the RealSense D455 3D VoxelLayer.
+3. **Explores frontiers autonomously**: Detects boundaries between known free space and unknown space in `/map` and sends `NavigateToPose` goals to Nav2 while avoiding 2D/3D obstacles and bumper hazards.
+4. **Saves the map automatically**: Periodically checkpoints `arena_map.pgm` & `arena_map.yaml` every 20 seconds, and **immediately saves the final map when exploration finishes OR when you press `Ctrl+C` over SSH**.
+
+### 6. Manual Mapping Workflow (Optional)
+
+If you prefer to drive the robot manually while mapping:
 
 1. **Undock the Create 3** (if docked):
    ```bash
@@ -254,28 +269,27 @@ When ready to map in an environment:
    ```
 2. **Start mapping**:
    ```bash
-   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=true
+   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=false
    ```
 3. **Teleoperate**:
-   In another terminal:
    ```bash
    ros2 run teleop_twist_keyboard teleop_twist_keyboard
    ```
 4. **Save map**:
    ```bash
+   ros2 service call /explore/save_map std_srvs/srv/Trigger "{}"
+   # Or via map_saver_cli:
    ros2 run nav2_map_server map_saver_cli -f "$(pwd)/arena_map"
    ```
 
-### 4. Autonomous Navigation (Nav2)
+### 7. Autonomous Navigation (Headless SSH or with RViz on AGX)
 
-To navigate using a saved map:
+To run autonomous navigation using the saved `arena_map.yaml`:
 
 ```bash
-ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=/absolute/path/to/arena_map.yaml
+cd ~/TurtleBot4Lite_OusterOS0
+./scripts/run_autonomous_navigation.sh
 ```
-
-1. Set the initial robot pose in RViz with **2D Pose Estimate**.
-2. Send navigation goals using **Nav2 Goal**.
 
 ---
 
@@ -295,6 +309,7 @@ ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=/
   - The offboard Jetson AGX runs quantized OpenVLA-7B / SmolVLM-Instruct at 3–10 Hz, emitting high-level target bounding boxes, waypoint poses, or normalized velocity commands (`/vla/cmd_vel`).
   - The onboard Jetson Orin Nano receives commands, passes them through the local LiDAR proximity safety gate ($<0.35\text{ m}$ dynamic brake) and Nav2 local planner, and forwards velocity to Create 3 `/cmd_vel`.
   - *Fail-Safe Watchdog*: A 10 Hz heartbeat watchdog on the Nano automatically halts the robot if Wi-Fi packets drop for $>150\text{ ms}$.
+  - *Full Setup Guide*: Complete step-by-step instructions for configuring the Jetson AGX Orin with the TP-Link nano router and FastDDS Discovery Server are documented in [`docs/JETSON_AGX_ORIN_SETUP.md`](docs/JETSON_AGX_ORIN_SETUP.md). Automated configuration script: [`scripts/setup_agx_orin_network.sh`](scripts/setup_agx_orin_network.sh).
 
 ### Goal 5: Custom Acceleration Controller Adapter
 - **Constant Time Headway (CTH) Spacing Policy**:

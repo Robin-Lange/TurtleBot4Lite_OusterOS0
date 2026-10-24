@@ -1,9 +1,10 @@
-"""Unified robot bringup entry point supporting diagnose, map, and navigate modes.
+"""Unified robot bringup entry point supporting diagnose, map, auto_map, and navigate modes.
 
 Usage:
   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=diagnose (default)
+  ros2 launch tb4_ouster_autonomy robot.launch.py mode:=auto_map rviz:=false
   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=true
-  ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true
+  ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=false
   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate map:=/path/to/map.yaml rviz:=true
 """
 
@@ -30,37 +31,48 @@ def generate_launch_description():
         default_value='diagnose',
         description=(
             'Operating mode: diagnose (stationary, no velocity), '
-            'map (manual SLAM), or navigate (waypoint navigation)'
+            'map (manual SLAM), auto_map (autonomous frontier SLAM + auto-save), '
+            'or navigate (waypoint navigation)'
         ),
-        choices=['diagnose', 'map', 'navigate'],
+        choices=['diagnose', 'map', 'auto_map', 'navigate'],
     )
 
     map_arg = DeclareLaunchArgument(
         'map',
-        default_value=os.path.join(pkg_share, 'maps', 'arena_map.yaml'),
+        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map.yaml',
         description='Full path to map yaml (navigate mode only)',
+    )
+
+    map_output_prefix_arg = DeclareLaunchArgument(
+        'map_output_prefix',
+        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map',
+        description='File prefix where autonomous mapping saves .pgm and .yaml files',
+    )
+
+    auto_undock_arg = DeclareLaunchArgument(
+        'auto_undock',
+        default_value='true',
+        description='Whether auto_map mode should automatically undock from the Create 3 dock',
     )
 
     start_sensor_arg = DeclareLaunchArgument(
         'start_sensor',
         default_value='false',
-        description='Whether to start the RPLIDAR S2 and RealSense D455 drivers',
+        description='Whether to start the RPLIDAR S2 and RealSense D455 drivers (diagnose mode)',
     )
 
     rviz_arg = DeclareLaunchArgument(
         'rviz',
         default_value='false',
-        description='Whether to launch RViz2',
+        description='Whether to launch RViz2 (set false when running headless via SSH)',
     )
 
     mode = LaunchConfiguration('mode')
 
     is_diagnose = PythonExpression(["'", mode, "' == 'diagnose'"])
     is_map = PythonExpression(["'", mode, "' == 'map'"])
+    is_auto_map = PythonExpression(["'", mode, "' == 'auto_map'"])
     is_navigate = PythonExpression(["'", mode, "' == 'navigate'"])
-    is_map_or_navigate = PythonExpression([
-        "'", mode, "' == 'map' or '", mode, "' == 'navigate'"
-    ])
 
     # 1. Diagnose mode: read-only perception TF + stationary diagnostics
     perception_launch = IncludeLaunchDescription(
@@ -87,7 +99,7 @@ def generate_launch_description():
         condition=IfCondition(is_diagnose),
     )
 
-    # 2. Map mode: perception + slam_toolbox
+    # 2. Map mode: perception + slam_toolbox (manual teleop)
     mapping_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_share, 'launch', 'mapping.launch.py')
@@ -100,7 +112,27 @@ def generate_launch_description():
         condition=IfCondition(is_map),
     )
 
-    # 3. Navigate mode: full Nav2 stack with loaded map and 3D VoxelLayer costmap
+    # 3. Auto-Map mode: autonomous frontier exploration + SLAM + auto map save on finish/Ctrl+C
+    auto_map_launch = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(pkg_share, 'launch', 'auto_map.launch.py')
+        ),
+        launch_arguments={
+            'map_output_prefix': LaunchConfiguration('map_output_prefix'),
+            'auto_undock': LaunchConfiguration('auto_undock'),
+        }.items(),
+        condition=IfCondition(is_auto_map),
+    )
+
+    auto_map_info = LogInfo(
+        msg=(
+            'Starting in AUTO_MAP mode — autonomous frontier exploration active. '
+            'Map saves automatically on completion or Ctrl+C.'
+        ),
+        condition=IfCondition(is_auto_map),
+    )
+
+    # 4. Navigate mode: full Nav2 stack with loaded map and 3D VoxelLayer costmap
     navigate_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_share, 'launch', 'navigate.launch.py')
@@ -114,7 +146,7 @@ def generate_launch_description():
         condition=IfCondition(is_navigate),
     )
 
-    # 4. RViz — different config per mode
+    # 5. RViz — different config per mode
     rviz_map_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -127,7 +159,8 @@ def generate_launch_description():
             '-f', 'map',
         ],
         condition=IfCondition(PythonExpression([
-            "True if ('", LaunchConfiguration('rviz'), "' == 'true' and '", mode, "' == 'map') else False"
+            "True if ('", LaunchConfiguration('rviz'), "' == 'true' and ('",
+            mode, "' == 'map' or '", mode, "' == 'auto_map')) else False"
         ])),
     )
 
@@ -167,6 +200,8 @@ def generate_launch_description():
         SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         mode_arg,
         map_arg,
+        map_output_prefix_arg,
+        auto_undock_arg,
         start_sensor_arg,
         rviz_arg,
         # diagnose
@@ -176,6 +211,9 @@ def generate_launch_description():
         # map
         map_info,
         mapping_launch,
+        # auto_map
+        auto_map_info,
+        auto_map_launch,
         # navigate
         navigate_info,
         navigate_launch,

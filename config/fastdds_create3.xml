@@ -5,12 +5,19 @@
             <transport_descriptor>
                 <transport_id>udp_transport</transport_id>
                 <type>UDPv4</type>
-                <sendBufferSize>32768</sendBufferSize>
-                <receiveBufferSize>32768</receiveBufferSize>
+                <sendBufferSize>65536</sendBufferSize>
+                <receiveBufferSize>65536</receiveBufferSize>
                 <maxMessageSize>8192</maxMessageSize>
                 <interfaceWhiteList>
+                    <!-- Create 3 USB-C gadget interface -->
                     <address>192.168.186.3</address>
+                    <!-- Local loopback for intra-Jetson communication -->
                     <address>127.0.0.1</address>
+                    <!-- Private TP-Link Wi-Fi link to Jetson AGX Orin -->
+                    <address>192.168.0.100</address>
+                    <address>192.168.0.101</address>
+                    <address>192.168.1.100</address>
+                    <address>192.168.1.101</address>
                 </interfaceWhiteList>
             </transport_descriptor>
         </transport_descriptors>
@@ -21,15 +28,29 @@
                 </userTransports>
                 <useBuiltinTransports>false</useBuiltinTransports>
                 <builtin>
+                    <!-- Pure Unicast Discovery & Dataflow (avoids Wi-Fi multicast dropouts) -->
+                    <metatrafficUnicastLocatorList>
+                        <locator>
+                            <udpv4/>
+                        </locator>
+                    </metatrafficUnicastLocatorList>
                     <initialPeersList>
+                        <!-- iRobot Create 3 Base over USB-C -->
                         <locator>
                             <udpv4>
                                 <address>192.168.186.2</address>
                             </udpv4>
                         </locator>
+                        <!-- Localhost nodes on Jetson Orin Nano -->
                         <locator>
                             <udpv4>
                                 <address>127.0.0.1</address>
+                            </udpv4>
+                        </locator>
+                        <!-- Offboard Jetson AGX Orin over Private Wi-Fi Router -->
+                        <locator>
+                            <udpv4>
+                                <address>192.168.0.10</address>
                             </udpv4>
                         </locator>
                     </initialPeersList>
