@@ -157,22 +157,70 @@ Transforms are published statically in `ros2_ws/src/tb4_ouster_autonomy/launch/m
 
 ---
 
+---
+
 ## Operating Instructions
 
-### 1. Build & Test Workspace
+### 1. Automated Installation on a New Jetson
+
+To configure a brand-new NVIDIA Jetson Orin Nano (e.g., bare board without case):
 
 ```bash
-source /opt/ros/humble/setup.bash
-cd /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws
-colcon build --symlink-install
-source install/setup.bash
+git clone -b feature/realsense-rplidar-navigation https://github.com/Robin-Lange/TurtleBot4Lite_OusterOS0.git
+cd TurtleBot4Lite_OusterOS0
 
-# Run automated tests
+# Run automated dependency & system configuration installer:
+./scripts/install_dependencies.sh
+```
+
+This single command automatically:
+- Installs all ROS 2 Humble packages (`realsense2_camera`, `rplidar_ros`, `slam_toolbox`, `nav2`, `foxglove_bridge`, etc.).
+- Installs Python dependencies from `requirements.txt`.
+- Configures RPLIDAR udev rule (`/dev/rplidar` symlink).
+- Creates the Create 3 USB-C gadget NetworkManager profile (`create3-usb1` at `192.168.186.3/24` with DDS multicast route).
+- Configures Chrony NTP server for time synchronization with the Create 3 base.
+- Builds the `ros2_ws` workspace.
+
+### 2. Jetson Power & Hardware Diagnostics Monitor
+
+To inspect real-time power consumption (Watts & mW), rail draw, temperatures, and RAM on the Jetson:
+
+```bash
+# Single snapshot reading:
+./scripts/check_power.sh
+
+# Continuous live streaming monitor (1-second updates):
+./scripts/check_power.sh --continuous
+```
+
+Example output:
+```text
+============================================================
+       NVIDIA Jetson Orin Nano Power & Health Monitor       
+============================================================
+Power Mode     : NV Power Mode: 15W
+Total Power In : 6.47 W  (6469 mW)
+CPU/GPU/CV     : 1.27 W  (1275 mW)
+SOC Power      : 1.60 W  (1597 mW)
+------------------------------------------------------------
+Temperatures   : CPU: 54.9C | GPU: 53.7C | TJunction: 54.9C
+Memory Usage   : RAM: 2499/7620MB | SWAP: 0/24290MB
+============================================================
+```
+
+### 3. Build & Test Workspace
+
+```bash
+source setup_env.sh
+cd ros2_ws
+colcon build --symlink-install
+
+# Run automated tests (24/24 pass)
 colcon test --packages-select tb4_ouster_autonomy
 colcon test-result --all --verbose
 ```
 
-### 2. Stationary Diagnostics (Docked Mode)
+### 4. Stationary Diagnostics (Docked Mode)
 
 Run the diagnostics without moving the robot to verify that all sensors, transforms, and base telemetry are healthy:
 
@@ -233,13 +281,20 @@ ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=/
 
 ## Research & Architectural Analysis
 
-### Goal 4: Vision-Language-Action (VLA) Target Following
+### Goal 4: Vision-Language-Action (VLA) Target Following & Image Streaming Architecture
 - **RealSense 2026 Trends Alignment**: Combines edge visual-spatial intelligence (wide 86°×57° FOV, global shutter, 95 mm baseline depth) with foundation vision-language models.
 - **Hardware Physics (D435 vs. D455)**: The D455 increases baseline from 50 mm to 95 mm, reducing Z-depth error by half at 4 m ($<2\%$ Z-error at 4 m), providing stable target tracking and person following across 0.4 m to 6.0 m.
-- **Distributed Edge Compute Topology**:
-  - *Onboard (Jetson Orin Nano inside robot)*: Real-time 30 Hz capture, NVENC H.264 stream compression ($<1.5$ Mbps), local ByteTrack object tracking, Nav2 obstacle avoidance, and safety watchdog.
-  - *Offboard (Jetson Orin AGX on dedicated 5 GHz Wi-Fi)*: Quantized OpenVLA-7B / SmolVLM-Instruct running at 3–5 Hz, emitting high-level target bounding boxes and following directives.
-  - *Fail-Safe Watchdog*: 10 Hz heartbeat failsafe halts navigation if Wi-Fi latency exceeds 150 ms.
+- **Optimal Streaming Protocol (Nano $\to$ AGX)**:
+  - *Raw RGB over Wi-Fi is Infeasible*: Raw $640\times 480 \times 3$ RGB @ 30 FPS requires $\approx 220\text{ Mbps}$ ($27.6\text{ MB/s}$), causing severe Wi-Fi buffer bloat, packet drops, and $>500\text{ ms}$ latency spikes.
+  - *Recommended Method: Compressed Image Transport*:
+    - Use ROS 2 `compressed_image_transport` on `/camera/camera/color/image_raw/compressed` (already built into `realsense2_camera`).
+    - Compresses frames to JPEG ($\approx 35\text{ KB/frame}$), reducing bandwidth to **$\approx 350\text{ KB/s}$ at 10 Hz** or $\approx 1.0\text{ MB/s}$ at 30 Hz ($<8\text{ Mbps}$).
+    - The offboard Jetson AGX decodes frames instantaneously using OpenCV (`cv2.imdecode`) or NVIDIA VPI with $<5\text{ ms}$ latency.
+  - *Alternative: NVENC Hardware H.264/RTP*: For 30 FPS continuous visual servoing, stream via GStreamer NVENC hardware encoder at $1.5\text{ Mbps}$ with $<25\text{ ms}$ glass-to-glass latency.
+- **Control Feedback Loop (AGX $\to$ Nano)**:
+  - The offboard Jetson AGX runs quantized OpenVLA-7B / SmolVLM-Instruct at 3–10 Hz, emitting high-level target bounding boxes, waypoint poses, or normalized velocity commands (`/vla/cmd_vel`).
+  - The onboard Jetson Orin Nano receives commands, passes them through the local LiDAR proximity safety gate ($<0.35\text{ m}$ dynamic brake) and Nav2 local planner, and forwards velocity to Create 3 `/cmd_vel`.
+  - *Fail-Safe Watchdog*: A 10 Hz heartbeat watchdog on the Nano automatically halts the robot if Wi-Fi packets drop for $>150\text{ ms}$.
 
 ### Goal 5: Custom Acceleration Controller Adapter
 - **Constant Time Headway (CTH) Spacing Policy**:

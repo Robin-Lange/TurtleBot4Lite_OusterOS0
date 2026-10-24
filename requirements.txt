@@ -1,0 +1,20 @@
+# Python dependencies for tb4_ouster_autonomy
+numpy>=1.21.0
+scipy>=1.7.0
+
+# System & ROS 2 Humble packages installed via scripts/install_dependencies.sh:
+# ros-humble-realsense2-camera
+# ros-humble-realsense2-description
+# ros-humble-rplidar-ros
+# ros-humble-laser-filters
+# ros-humble-slam-toolbox
+# ros-humble-navigation2
+# ros-humble-nav2-bringup
+# ros-humble-teleop-twist-keyboard
+# ros-humble-image-transport
+# ros-humble-image-transport-plugins
+# ros-humble-compressed-image-transport
+# ros-humble-foxglove-bridge
+# python3-colcon-common-extensions
+# chrony
+# udev rules for RPLIDAR (/etc/udev/rules.d/99-rplidar.rules)
