@@ -48,6 +48,10 @@ class BumperContactCloud(Node):
         self._active_events: list = []
 
         self._tf_broadcaster = TransformBroadcaster(self)
+        self._odom_frame = 'odom'
+        self._base_frame = 'base_link'
+        self._last_pos = (0.0, 0.0, 0.0)
+        self._last_rot = (0.0, 0.0, 0.0, 1.0)
 
         self._sub_odom = self.create_subscription(
             Odometry,
@@ -68,18 +72,39 @@ class BumperContactCloud(Node):
         )
 
         self._timer = self.create_timer(1.0 / publish_rate_hz, self._publish_callback)
+        self._tf_timer = self.create_timer(0.05, self._broadcast_odom_tf)
+
+    def _broadcast_odom_tf(self) -> None:
+        """Broadcast odom -> base_link stamped with local Jetson clock to prevent TF tree gaps."""
+        t = TransformStamped()
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = self._odom_frame
+        t.child_frame_id = self._base_frame
+        t.transform.translation.x = self._last_pos[0]
+        t.transform.translation.y = self._last_pos[1]
+        t.transform.translation.z = self._last_pos[2]
+        t.transform.rotation.x = self._last_rot[0]
+        t.transform.rotation.y = self._last_rot[1]
+        t.transform.rotation.z = self._last_rot[2]
+        t.transform.rotation.w = self._last_rot[3]
+        self._tf_broadcaster.sendTransform(t)
 
     def _odom_callback(self, msg: Odometry) -> None:
         """Relay Create 3 BEST_EFFORT /odom into local /tf (odom -> base_link) immediately."""
-        t = TransformStamped()
-        t.header.stamp = msg.header.stamp
-        t.header.frame_id = msg.header.frame_id.lstrip('/') or 'odom'
-        t.child_frame_id = msg.child_frame_id.lstrip('/') or 'base_link'
-        t.transform.translation.x = msg.pose.pose.position.x
-        t.transform.translation.y = msg.pose.pose.position.y
-        t.transform.translation.z = msg.pose.pose.position.z
-        t.transform.rotation = msg.pose.pose.orientation
-        self._tf_broadcaster.sendTransform(t)
+        self._odom_frame = msg.header.frame_id.lstrip('/') or 'odom'
+        self._base_frame = msg.child_frame_id.lstrip('/') or 'base_link'
+        self._last_pos = (
+            float(msg.pose.pose.position.x),
+            float(msg.pose.pose.position.y),
+            float(msg.pose.pose.position.z),
+        )
+        self._last_rot = (
+            float(msg.pose.pose.orientation.x),
+            float(msg.pose.pose.orientation.y),
+            float(msg.pose.pose.orientation.z),
+            float(msg.pose.pose.orientation.w),
+        )
+        self._broadcast_odom_tf()
 
     def _bumper_angles(self, bump_frames: list) -> list:
         """Return arc angles (rad) matching which bumper zones were hit."""

@@ -277,6 +277,8 @@ class AutonomousExplorer(Node):
         self.blacklisted_goals: List[Tuple[float, float]] = []
         self.current_goal: Optional[Tuple[float, float]] = None
         self.goal_sent_time: float = 0.0
+        self.last_nav_reject_time: float = 0.0
+        self.blacklist_reset_count: int = 0
         self.nav_goal_active: bool = False
         self.nav_goal_handle = None
         self.undock_requested: bool = False
@@ -501,17 +503,21 @@ class AutonomousExplorer(Node):
         try:
             goal_handle = future.result()
             if not goal_handle.accepted:
-                self.get_logger().warn("Frontier goal rejected by Nav2; blacklisting.")
-                if self.current_goal is not None:
-                    self.blacklisted_goals.append(self.current_goal)
+                self.get_logger().warn(
+                    "Nav2 bt_navigator not ready yet (goal rejected); using reactive LiDAR exploration for 3s."
+                )
+                self.last_nav_reject_time = time.monotonic()
                 self.nav_goal_active = False
                 self.nav_goal_handle = None
+                if self.reactive_fallback_enabled:
+                    self.reactive_explore_step()
                 return
             self.nav_goal_handle = goal_handle
             result_future = goal_handle.get_result_async()
             result_future.add_done_callback(self._goal_result_callback)
         except Exception as exc:
             self.get_logger().warn(f"Nav2 goal response error: {exc}")
+            self.last_nav_reject_time = time.monotonic()
             self.nav_goal_active = False
 
     def _goal_result_callback(self, future):
@@ -662,6 +668,12 @@ class AutonomousExplorer(Node):
                 else:
                     return
 
+            # If Nav2 rejected a goal recently (bt_navigator still activating), drive reactively
+            if (now - self.last_nav_reject_time) < 3.0:
+                if self.reactive_fallback_enabled:
+                    self.reactive_explore_step()
+                return
+
             # Pick next frontier
             next_goal = self.select_next_frontier()
             if next_goal is not None:
@@ -670,6 +682,15 @@ class AutonomousExplorer(Node):
                 if not sent and self.reactive_fallback_enabled:
                     self.reactive_explore_step()
             else:
+                if self.blacklisted_goals and self.blacklist_reset_count < 2:
+                    self.blacklist_reset_count += 1
+                    self.get_logger().info(
+                        f"Clearing frontier blacklist (pass {self.blacklist_reset_count}/2) to re-check remaining frontiers."
+                    )
+                    self.blacklisted_goals.clear()
+                    if self.reactive_fallback_enabled:
+                        self.reactive_explore_step()
+                    return
                 self.no_frontier_count += 1
                 if self.no_frontier_count >= 12:  # 3 seconds of zero remaining frontiers
                     self.finish_exploration("all_frontiers_explored")
