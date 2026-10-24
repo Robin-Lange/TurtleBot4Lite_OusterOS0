@@ -16,13 +16,16 @@ Published topic:
 import math
 import time
 
+from geometry_msgs.msg import TransformStamped
 from irobot_create_msgs.msg import HazardDetection, HazardDetectionVector
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 import sensor_msgs_py.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
 from std_msgs.msg import Header
+from tf2_ros import TransformBroadcaster
 
 
 # Bumper arc radius (m) — approximately the Create 3 body radius
@@ -44,6 +47,15 @@ class BumperContactCloud(Node):
         # Each entry: (x, y, z_low, z_high, expiry_monotonic)
         self._active_events: list = []
 
+        self._tf_broadcaster = TransformBroadcaster(self)
+
+        self._sub_odom = self.create_subscription(
+            Odometry,
+            '/odom',
+            self._odom_callback,
+            qos_profile_sensor_data,
+        )
+
         self._sub_hazard = self.create_subscription(
             HazardDetectionVector,
             '/hazard_detection',
@@ -56,6 +68,18 @@ class BumperContactCloud(Node):
         )
 
         self._timer = self.create_timer(1.0 / publish_rate_hz, self._publish_callback)
+
+    def _odom_callback(self, msg: Odometry) -> None:
+        """Relay Create 3 BEST_EFFORT /odom into local /tf (odom -> base_link) immediately."""
+        t = TransformStamped()
+        t.header.stamp = msg.header.stamp
+        t.header.frame_id = msg.header.frame_id.lstrip('/') or 'odom'
+        t.child_frame_id = msg.child_frame_id.lstrip('/') or 'base_link'
+        t.transform.translation.x = msg.pose.pose.position.x
+        t.transform.translation.y = msg.pose.pose.position.y
+        t.transform.translation.z = msg.pose.pose.position.z
+        t.transform.rotation = msg.pose.pose.orientation
+        self._tf_broadcaster.sendTransform(t)
 
     def _bumper_angles(self, bump_frames: list) -> list:
         """Return arc angles (rad) matching which bumper zones were hit."""

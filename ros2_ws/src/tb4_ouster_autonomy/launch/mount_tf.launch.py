@@ -37,10 +37,6 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='base_to_laser',
-            additional_env={
-                'FASTRTPS_DEFAULT_PROFILES_FILE':
-                    '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_sensors.xml'
-            },
             arguments=[
                 '--x', laser_x, '--y', laser_y, '--z', laser_z,
                 '--roll', '0', '--pitch', '0', '--yaw', laser_yaw,
@@ -52,10 +48,6 @@ def generate_launch_description():
             package='tf2_ros',
             executable='static_transform_publisher',
             name='base_to_camera_link',
-            additional_env={
-                'FASTRTPS_DEFAULT_PROFILES_FILE':
-                    '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_sensors.xml'
-            },
             arguments=[
                 '--x', camera_x, '--y', camera_y, '--z', camera_z,
                 '--roll', '0', '--pitch', '0', '--yaw', camera_yaw,

@@ -5,14 +5,13 @@
             <transport_descriptor>
                 <transport_id>udp_transport</transport_id>
                 <type>UDPv4</type>
-                <sendBufferSize>2097152</sendBufferSize>
-                <receiveBufferSize>2097152</receiveBufferSize>
+                <sendBufferSize>65536</sendBufferSize>
+                <receiveBufferSize>65536</receiveBufferSize>
                 <maxMessageSize>8192</maxMessageSize>
                 <interfaceWhiteList>
-                    <!-- Local loopback FIRST so intra-Jetson traffic stays on lo -->
-                    <address>127.0.0.1</address>
-                    <!-- Create 3 USB-C gadget interface -->
                     <address>192.168.186.3</address>
+                    <address>127.0.0.1</address>
+                    <address>192.168.0.100</address>
                 </interfaceWhiteList>
             </transport_descriptor>
         </transport_descriptors>
@@ -23,17 +22,32 @@
                 </userTransports>
                 <useBuiltinTransports>false</useBuiltinTransports>
                 <builtin>
+                    <metatrafficMulticastLocatorList>
+                        <locator>
+                            <udpv4>
+                                <address>239.255.0.1</address>
+                            </udpv4>
+                        </locator>
+                    </metatrafficMulticastLocatorList>
                     <initialPeersList>
-                        <!-- Localhost nodes on Jetson Orin Nano -->
+                        <locator>
+                            <udpv4>
+                                <address>239.255.0.1</address>
+                            </udpv4>
+                        </locator>
+                        <locator>
+                            <udpv4>
+                                <address>192.168.186.2</address>
+                            </udpv4>
+                        </locator>
                         <locator>
                             <udpv4>
                                 <address>127.0.0.1</address>
                             </udpv4>
                         </locator>
-                        <!-- iRobot Create 3 Base over USB-C -->
                         <locator>
                             <udpv4>
-                                <address>192.168.186.2</address>
+                                <address>192.168.0.10</address>
                             </udpv4>
                         </locator>
                     </initialPeersList>

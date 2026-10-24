@@ -5,8 +5,8 @@
             <transport_descriptor>
                 <transport_id>udp_transport</transport_id>
                 <type>UDPv4</type>
-                <sendBufferSize>4194304</sendBufferSize>
-                <receiveBufferSize>4194304</receiveBufferSize>
+                <sendBufferSize>212992</sendBufferSize>
+                <receiveBufferSize>212992</receiveBufferSize>
                 <maxMessageSize>8192</maxMessageSize>
                 <interfaceWhiteList>
                     <address>127.0.0.1</address>
@@ -21,7 +21,19 @@
                 </userTransports>
                 <useBuiltinTransports>false</useBuiltinTransports>
                 <builtin>
+                    <metatrafficMulticastLocatorList>
+                        <locator>
+                            <udpv4>
+                                <address>239.255.0.1</address>
+                            </udpv4>
+                        </locator>
+                    </metatrafficMulticastLocatorList>
                     <initialPeersList>
+                        <locator>
+                            <udpv4>
+                                <address>239.255.0.1</address>
+                            </udpv4>
+                        </locator>
                         <locator>
                             <udpv4>
                                 <address>127.0.0.1</address>

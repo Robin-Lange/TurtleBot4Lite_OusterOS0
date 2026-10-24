@@ -12,7 +12,7 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
@@ -156,16 +156,11 @@ def generate_launch_description():
         }],
     )
 
-    delayed_nav2_container = TimerAction(
-        period=3.0,
-        actions=[nav2_slam_container],
-    )
-
     return LaunchDescription([
         map_output_arg,
         auto_undock_arg,
         mapping_launch,
-        delayed_nav2_container,
+        nav2_slam_container,
         bumper_cloud_node,
         explorer_node,
     ])

@@ -691,7 +691,7 @@ def main(args=None):
 
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
         if not node.map_saved_on_exit:
