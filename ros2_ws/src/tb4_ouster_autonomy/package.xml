@@ -5,7 +5,7 @@
   <description>Create 3 mapping, navigation, ECS safety, and D455/RPLIDAR S2 perception.</description>
   <maintainer email="rl11732@georgiasouthern.edu">RobinLange</maintainer>
   <license>Unspecified</license>
-  <buildtool_depend>ament_python</buildtool_depend>
+  <buildtool_depend>python3-setuptools</buildtool_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>

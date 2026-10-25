@@ -103,6 +103,7 @@ class AutonomousExplorer(Node):
         self.buffer = Buffer()
         self.tf_listener = TransformListener(self.buffer, self)
         self.sub_safety = self.create_subscription(String, '/safety/status', self.safety_callback, 1)
+        self.undock_goal_handle = None
         self.undock_succeeded = False
         self.undock_requested: bool = False
         self.no_frontier_count: int = 0
@@ -215,6 +216,9 @@ class AutonomousExplorer(Node):
     def stop_robot(self):
         """Publish zero velocity and cancel any active Nav2 goal."""
         self.goal_epoch += 1
+        if self.undock_goal_handle is not None:
+            self.undock_goal_handle.cancel_goal_async()
+            self.undock_goal_handle = None
         if self.nav_goal_active:
             self.cancel_pending = True
         if self.nav_goal_handle is not None:
@@ -421,15 +425,23 @@ class AutonomousExplorer(Node):
     def undock_response(self, future):
         try:
             handle = future.result()
+            if self.exploration_finished or self.safety_paused:
+                if handle.accepted:
+                    handle.cancel_goal_async()
+                return
             if not handle.accepted:
                 self.finish_exploration('undock_rejected')
                 return
+            self.undock_goal_handle = handle
             handle.get_result_async().add_done_callback(self.undock_result)
         except Exception as exc:
             self.get_logger().error(f'Undock failed: {exc}')
             self.finish_exploration('undock_error')
 
     def undock_result(self, future):
+        self.undock_goal_handle = None
+        if self.exploration_finished:
+            return
         try:
             self.undock_succeeded = future.result().status == GoalStatus.STATUS_SUCCEEDED
         except Exception:

@@ -24,6 +24,10 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('rplidar_frame', default_value='laser'),
+        DeclareLaunchArgument('laser_roll', default_value='0.0'),
+        DeclareLaunchArgument('laser_pitch', default_value='0.0'),
+        DeclareLaunchArgument('camera_roll', default_value='0.0'),
+        DeclareLaunchArgument('camera_pitch', default_value='0.0'),
         DeclareLaunchArgument('laser_x', default_value='-0.010', description='LiDAR X offset from base_link (m)'),
         DeclareLaunchArgument('laser_y', default_value='0.005', description='LiDAR Y offset from base_link (m)'),
         DeclareLaunchArgument('laser_z', default_value='0.118', description='LiDAR Z offset from base_link (m)'),
@@ -40,7 +44,8 @@ def generate_launch_description():
             name='base_to_laser',
             arguments=[
                 '--x', laser_x, '--y', laser_y, '--z', laser_z,
-                '--roll', '0', '--pitch', '0', '--yaw', laser_yaw,
+                '--roll', LaunchConfiguration('laser_roll'),
+                '--pitch', LaunchConfiguration('laser_pitch'), '--yaw', laser_yaw,
                 '--frame-id', 'base_link', '--child-frame-id', LaunchConfiguration('rplidar_frame'),
             ],
             output='screen',
@@ -51,7 +56,8 @@ def generate_launch_description():
             name='base_to_camera_link',
             arguments=[
                 '--x', camera_x, '--y', camera_y, '--z', camera_z,
-                '--roll', '0', '--pitch', '0', '--yaw', camera_yaw,
+                '--roll', LaunchConfiguration('camera_roll'),
+                '--pitch', LaunchConfiguration('camera_pitch'), '--yaw', camera_yaw,
                 '--frame-id', 'base_link', '--child-frame-id', 'camera_link',
             ],
             output='screen',
