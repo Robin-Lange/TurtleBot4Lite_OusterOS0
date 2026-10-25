@@ -1,333 +1,138 @@
-# TurtleBot 4 Lite + RealSense D455 + RPLIDAR S2 Autonomous Navigation
+# Create 3 + RPLIDAR S2 + RealSense D455
 
-ROS 2 Humble workspace for **2D mapping, localization, 3D obstacle perception, and autonomous navigation** with an iRobot Create 3 base, an NVIDIA Jetson Orin Nano, an **Intel RealSense D455** depth camera, and a **Slamtec RPLIDAR S2** 2D LiDAR.
+ROS 2 Humble mapping and navigation workspace for a custom iRobot Create 3 with a Jetson Orin Nano. The repository and package names retain `TurtleBot4Lite_OusterOS0` and `tb4_ouster_autonomy` for compatibility. This branch uses **RPLIDAR S2 and D455**, not an Ouster sensor or TurtleBot 4 standard bringup.
 
-The repository is configured as an indoor mobile research platform combining high-resolution 2D planar LiDAR SLAM with depth camera 3D Voxel costmaps and bumper contact integration.
+The code supports stationary diagnostics, manual SLAM, autonomous frontier mapping, and Nav2 localization/navigation. Software tests do not verify physical wiring, power capacity, firmware, or mounting calibration. See [the hardware and code audit](docs/HARDWARE_AUDIT.md) for findings, sources, and checks still needed on the robot.
 
-> **Platform note:** The repository and ROS package retain the name `TurtleBot4Lite_OusterOS0` / `tb4_ouster_autonomy` for compatibility. The system is a custom Create 3 platform and does not use TurtleBot 4 standard bringup. All communications run natively on **ROS Domain 0** via FastDDS.
-
----
-
-## System Overview
-
-The platform supports:
-- **2D SLAM & Mapping**: Sub-millimeter planar mapping with Slamtec RPLIDAR S2 (10 Hz, 3,240 pts/rev, 30 m range) via SLAM Toolbox.
-- **3D Obstacle Perception**: 3D PointCloud2 via Intel RealSense D455 (640×480 @ 30 FPS depth/color, ARM NEON point cloud generator) feeding Nav2 local & global VoxelLayers (0.35 m to 5.0 m range).
-- **Tactile Safety**: Bumper-contact integration via `/hazard_detection` generating contact points for low-lying obstacles below sensor FOV.
-- **Unified Domain 0 FastDDS**: Direct peer-to-peer DDS discovery with the Create 3 base over USB-C gadget interface `usb1` (8192 MTU, no domain bridge required).
-- **Navigation & Tracking**: Nav2 stack with Regulated Pure Pursuit / DWB controllers, velocity smoothing, and AMCL localization.
-- **Read-Only Stationary Diagnostics**: Live validation of all transforms, telemetry, and sensor streams while docked without commanding robot motion.
+## Runtime architecture
 
 ```mermaid
-flowchart LR
-    Lidar[Slamtec RPLIDAR S2] -->|/scan 10Hz| Slam[SLAM Toolbox / AMCL]
-    Lidar -->|/scan| Costmap[Nav2 2D Obstacle Layer]
-    D455[Intel RealSense D455] -->|/camera/camera/depth/color/points| Voxel[Nav2 3D Voxel Layer]
-    Create3[Create 3 Base<br/>192.168.186.2] -->|/odom, /imu, /hazard_detection| Nav2[Nav2 Planning & Control]
-    Create3 -->|/odom, /tf| Slam
-    Slam --> Nav2
-    Costmap --> Nav2
-    Voxel --> Nav2
-    Nav2 -->|/cmd_vel| Create3
+flowchart TD
+    N[Nav2 controller and behaviors] --> V[Velocity smoother]
+    V --> G[Authority and freshness gate]
+    E[Explorer proposals] --> G
+    T[Teleop proposals and deadman] --> G
+    G --> C[Collision Monitor]
+    S[RPLIDAR scan and filtered D455 cloud] --> C
+    C --> B[Create 3 cmd_vel]
 ```
 
----
+| Component | Role |
+| --- | --- |
+| `components.py` | Data-only robot authority, sensor samples, command-source entities, configuration, decisions |
+| `systems.py` | Pure authority, timestamp checks, command selection, rigid transforms, cropping, contact geometry |
+| `safety_authority_gate.py` | ROS subscriptions replace components; a timer runs the safety system and publishes its decision |
+| `cloud_filter.py` | Reads PointCloud2, transforms at acquisition time into `base_link`, then calls the cropping system |
+| `mapping.py` | Frontier extraction and map serialization without ROS dependencies |
+| `autonomous_explorer.py` | ROS action lifecycle, mission sequencing, and map checkpoints |
+| `bringup.py` | Shared Nav2 component composition for mapping and localization |
 
-## Hardware and Software Specifications
+This is a small entity-component-system design: entities have data components and functions perform decisions. ROS nodes remain transport adapters and lifecycle owners. It does not add a game engine or a second middleware runtime. The design follows the transport/policy separation and explicit operator authority in [the distributed autonomy platform](https://github.com/Robin-Lange/distributed-collaborative-autonomy-platform/blob/main/OVERVIEW.md).
 
-### Hardware
-- **Mobile Base**: iRobot Create 3 (docked, internal 4S Li-ion battery, 62 Hz odometry & IMU).
-- **Onboard Compute**: NVIDIA Jetson Orin Nano (8GB / 40W, aarch64, JetPack 6, Linux 5.15).
-- **2D LiDAR**: Slamtec RPLIDAR S2 (USB to serial `/dev/rplidar`, 1,000,000 baud, `DenseBoost`).
-- **Depth Camera**: Intel RealSense D455 (USB 3.2 SuperSpeed, stereo baseline 95 mm, global shutter 640×480 @ 30 FPS RGBD).
-- **Interconnect**: Dedicated high-speed USB-C cable from Jetson Orin Nano to Create 3 cargo bay board.
+## Sensor and command contracts
 
-### Software
-- **Operating System**: Ubuntu 22.04 LTS (Jammy Jellyfish).
-- **ROS Distribution**: ROS 2 Humble Hawksbill.
-- **Middleware**: `rmw_fastrtps_cpp` with custom FastDDS XML profile (`config/fastdds_create3.xml`).
-- **Key ROS Packages**:
-  - `rplidar_ros` (Slamtec S2 driver)
-  - `realsense2_camera` (Intel RealSense ROS 2 wrapper with ARM NEON point cloud support)
-  - `slam_toolbox` (Lifelong / synchronous 2D SLAM)
-  - `nav2_bringup` (Navigation2 stack)
+| Input/output | Topic / frame |
+| --- | --- |
+| RPLIDAR S2 | `/scan`, `laser`; serial 1,000,000 baud, DenseBoost |
+| D455 point cloud | `/camera/camera/depth/color/points`, driver optical frame |
+| Filtered obstacles | `/camera/cloud_filtered`, `base_link`, original acquisition timestamp |
+| Base telemetry | `/odom`, `/tf`, `/dock_status`, `/hazard_detection` |
+| Nav2 smoothed proposal | `/nav2/cmd_vel` |
+| Explorer proposal | `/explorer/cmd_vel` |
+| Teleop proposal / heartbeat | `/teleop/cmd_vel`, `/teleop/deadman` |
+| Gate output / status | `/cmd_vel_safe`, `/safety/status` |
+| Final external velocity writer | Collision Monitor → `/cmd_vel` |
 
----
+All moving modes include the gate and Collision Monitor. Required telemetry includes both receipt and acquisition age for odometry, dynamic TF, scan, camera cloud, dock status, and hazard status. Contact, cliff, stall, wheel drop, and operator stop latch zero output. There is no automatic bumper backup. The robot's native reflexes remain enabled.
 
-## Network & ROS Domain Configuration
+Manual input pauses autonomous velocity forwarding until `/safety/resume`. Closing teleop does not resume autonomy. Teleop heartbeat is required only for manual commands. Default caps are 0.15 m/s and 0.50 rad/s; these are conservative application settings, not certified hardware limits. A normal held velocity remains subject to the input timeout. Built-in Create 3 actions such as undocking are separate base-side behaviors; the explorer cancels its action on stop.
 
-The entire autonomy stack, sensor drivers, and Create 3 base run **natively on ROS Domain 0**:
+## Installation and setup
 
-| Component | Configuration | Notes |
-| --- | --- | --- |
-| Create 3 Base | `192.168.186.2` | Web dashboard at `http://192.168.186.2` |
-| Jetson Gadget IP | `192.168.186.3` | `usb1` interface (`create3-usb1`), metric 50 |
-| Multicast Route | `224.0.0.0/4 dev usb1` | Required for DDS multicast discovery |
-| ROS Domain | `0` | Direct native graph (no `domain_bridge`) |
-| Middleware Profile | `config/fastdds_create3.xml` | 8192 MTU, whitelist `192.168.186.3` & `127.0.0.1` |
-
-### Environment Setup
-Export these variables in every terminal before running ROS 2 commands:
+On Ubuntu 22.04 with ROS 2 Humble already installed:
 
 ```bash
-source /opt/ros/humble/setup.bash
-source /home/ivlaborin2/TurtleBot4Lite_OusterOS0/ros2_ws/install/setup.bash
-export ROS_DOMAIN_ID=0
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_create3.xml
-```
-
----
-
-## Hardware Setup & Troubleshooting Guide
-
-### 1. Jetson-to-Create 3 USB-C Wiring
-- Connect a high-speed data-rated USB-C to USB-C cable from the Jetson Orin Nano USB-C port to the USB-C port on the adapter board in the Create 3 cargo bay.
-- The Jetson port operates in dual-role (device mode), exposing `usb0` (192.168.55.1) and `usb1` (192.168.186.3).
-
-### 2. NetworkManager & L4T USB Gadget Conflict
-- On Jetson Linux (L4T), if NetworkManager auto-creates an interface profile named `l4tbr0`, the boot script `nv-l4t-usb-device-mode-start.sh` fails with:
-  ```text
-  add bridge failed: Device or resource busy (device l4tbr0 already exists)
-  ```
-  This prevents `tegra-xudc` from binding and leaves `usb0`/`usb1` missing.
-- **Fix:**
-  ```bash
-  sudo nmcli con delete l4tbr0
-  sudo systemctl restart nv-l4t-usb-device-mode.service
-  sudo nmcli con up create3-usb1
-  ```
-
-### 3. FastDDS Profile & Message Size (8192 MTU)
-- The Create 3 base firmware uses an embedded FastDDS profile configured with `maxMessageSize: 8192`.
-- Standard FastDDS on Ubuntu defaults to 65,500 bytes; without matching the message size, discovery or message deserialization fails.
-- When whitelisting interfaces, both `192.168.186.3` AND `127.0.0.1` must be included so local nodes (RViz, sensor nodes, SLAM) can communicate via loopback.
-- Use `config/fastdds_create3.xml`:
-  ```bash
-  export ROS_DOMAIN_ID=0
-  export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-  export FASTRTPS_DEFAULT_PROFILES_FILE=/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_create3.xml
-  ```
-
-### 4. Clock Synchronization & App Restart
-- The Create 3 has no RTC battery. After extended power-off or cable disconnects, its clock drifts.
-- When clocks differ significantly, ROS 2 node timers freeze and nodes will not publish telemetry.
-- **Sync procedure:**
-  ```bash
-  # Step 1: Tell Create 3 ntpd to sync to Jetson chrony server
-  curl -X POST http://192.168.186.2/api/restart-ntpd
-
-  # Step 2: Restart Create 3 application so nodes bind to synced time
-  curl -X POST http://192.168.186.2/api/restart-app
-  ```
-  Wait ~15–20 seconds for `create-platform` nodes to initialize and publish `Ready to go!`.
-
-### 5. Sensor QoS Policy
-- Create 3 topics (`/battery_state`, `/odom`, `/dock_status`, `/hazard_detection`) publish using Best Effort reliability and volatile durability.
-- To inspect from CLI, specify the message type and Best Effort QoS:
-  ```bash
-  ros2 topic echo /battery_state sensor_msgs/msg/BatteryState     --qos-reliability best_effort --qos-durability volatile --once
-  ```
-
-### 6. Battery Characteristics & Compatibility
-- **Stock Create 3 Battery:** 4S Li-ion pack (~14.4V nominal, ~16.8V max charged, ~13.2V cutoff).
-- **Warning on External Batteries:**
-  - A 14.6V maximum rating corresponds to a 4S LiFePO4 battery (4 × 3.65V = 14.6V).
-  - **Warning:** Do NOT place a LiFePO4 battery on the standard Create 3 charging dock. The dock charger charges up to ~16.8V for Li-ion, which would dangerously overcharge and damage a LiFePO4 pack.
-
----
-
-## Physical Extrinsics & Transforms
-
-All physical coordinate offsets are measured from `base_link` (center of the wheel axle on the ground plane):
-
-- **Top Mounting Plate**: $z = 0.090$ m above ground.
-- **Slamtec RPLIDAR S2**:
-  - Center is $1$ cm behind robot center ($x = -0.010$ m) and $0.5$ cm to the left ($y = +0.005$ m).
-  - Optical plane is $28$ mm above mounting plate $\Rightarrow z = 0.090 + 0.028 = 0.118$ m.
-  - Frame transform: `base_link -> laser`: `[-0.010, 0.005, 0.118, 0, 0, 0]`.
-- **Intel RealSense D455**:
-  - Center is $4$ cm behind LiDAR center $\Rightarrow x = -0.050$ m.
-  - Camera center is $0.5$ cm to the right of robot center $\Rightarrow y = -0.005$ m.
-  - Camera optical center is $8.6$ cm above the mounting plate $\Rightarrow z = 0.090 + 0.086 = 0.176$ m.
-  - Frame transform: `base_link -> camera_link`: `[-0.050, -0.005, 0.176, 0, 0, 0]`.
-  - Camera optical frames (`camera_depth_optical_frame`, `camera_color_optical_frame`) are published automatically by `realsense2_camera`.
-
-Transforms are published statically in `ros2_ws/src/tb4_ouster_autonomy/launch/mount_tf.launch.py`.
-
----
-
----
-
-## Operating Instructions
-
-### 1. Automated Installation on a New Jetson
-
-To configure a brand-new NVIDIA Jetson Orin Nano (e.g., bare board without case):
-
-```bash
-git clone -b feature/realsense-rplidar-navigation https://github.com/Robin-Lange/TurtleBot4Lite_OusterOS0.git
-cd TurtleBot4Lite_OusterOS0
-
-# Run automated dependency & system configuration installer:
 ./scripts/install_dependencies.sh
+source setup_env.sh
 ```
 
-This single command automatically:
-- Installs all ROS 2 Humble packages (`realsense2_camera`, `rplidar_ros`, `slam_toolbox`, `nav2`, `foxglove_bridge`, etc.).
-- Installs Python dependencies from `requirements.txt`.
-- Configures RPLIDAR udev rule (`/dev/rplidar` symlink).
-- Creates the Create 3 USB-C gadget NetworkManager profile (`create3-usb1` at `192.168.186.3/24` with DDS multicast route).
-- Configures Chrony NTP server for time synchronization with the Create 3 base.
-- Builds the `ros2_ws` workspace.
+Dependencies are declared in `package.xml` and installed through rosdep. Installation creates a dialout-only CP210x serial rule. If several CP210x adapters are attached, qualify the rule with the S2 adapter's serial number. Log out and back in after changing group membership.
 
-### 2. Jetson Power & Hardware Diagnostics Monitor
-
-To inspect real-time power consumption (Watts & mW), rail draw, temperatures, and RAM on the Jetson:
+Network changes are separate:
 
 ```bash
-# Single snapshot reading:
-./scripts/check_power.sh
-
-# Continuous live streaming monitor (1-second updates):
-./scripts/check_power.sh --continuous
+CREATE3_IF=usb1 ./scripts/install_dependencies.sh --configure-network
 ```
 
-Example output:
-```text
-============================================================
-       NVIDIA Jetson Orin Nano Power & Health Monitor       
-============================================================
-Power Mode     : NV Power Mode: 15W
-Total Power In : 6.47 W  (6469 mW)
-CPU/GPU/CV     : 1.27 W  (1275 mW)
-SOC Power      : 1.60 W  (1597 mW)
-------------------------------------------------------------
-Temperatures   : CPU: 54.9C | GPU: 53.7C | TJunction: 54.9C
-Memory Usage   : RAM: 2499/7620MB | SWAP: 0/24290MB
-============================================================
+Verify the actual gadget interface first (`ip -br addr`). The supplied robot profile expects `192.168.186.3`, with Create 3 at `192.168.186.2`; the AGX profile expects `192.168.0.10`. Review all interface whitelist addresses before use. `setup_env.sh` defaults to domain 0/Fast DDS and respects explicit domain, middleware, and profile settings. Launch files do not overwrite them. Synchronize the Create 3 and Jetson clocks; never fix TF problems by stamping stale poses as current. The base normally publishes its own odometry TF.
+
+Mount transforms retain the previous branch's offsets as **unverified calibration inputs**: `base_link→laser = (-0.010, 0.005, 0.118) m`, `base_link→camera_link = (-0.050, -0.005, 0.176) m`, zero rotation. Re-measure these against the actual Create 3 frame and camera reference point. Mount launch arguments include position/yaw; additional pitch/roll can be supplied as described in the audit.
+
+## Operation
+
+Start with read-only diagnostics:
+
+```bash
+source setup_env.sh
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=diagnose start_sensor:=true
 ```
 
-### 3. Build & Test Workspace
+Manual mapping and teleop, in separate terminals:
+
+```bash
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map
+ros2 run tb4_ouster_autonomy teleop_keyboard
+```
+
+Save a manual map:
+
+```bash
+mkdir -p ~/maps
+ros2 run nav2_map_server map_saver_cli -f ~/maps/arena_map
+```
+
+Autonomous mapping (includes an explicitly requested undock in the wrapper) and subsequent navigation:
+
+```bash
+./scripts/run_autonomous_mapping.sh [optional_output_prefix]
+./scripts/run_autonomous_navigation.sh [optional_map_yaml]
+```
+
+The default map is `~/maps/arena_map.yaml`. Existing maps are backed up before mapping; saves go to a user-owned directory. Checkpoints occur every 20 seconds when a map is available. Shutdown attempts a final save, but file IO and abrupt power loss can still prevent it. Navigation requires a suitable map and an AMCL initial pose, for example through RViz:
+
+```bash
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=$HOME/maps/arena_map.yaml
+```
+
+After clearing a fault and verifying fresh telemetry:
+
+```bash
+ros2 service call /safety/resume std_srvs/srv/Trigger '{}'
+```
+
+The scripts stop their own launch process group. They do not kill unrelated ROS processes or publish around the gate.
+
+## Verification
+
+Pure systems and configuration tests run without ROS:
+
+```bash
+python3 -m pip install pytest numpy pyyaml
+python3 -m pytest -q ros2_ws/src/tb4_ouster_autonomy/test
+```
+
+ROS adapter and Collision Monitor integration tests require the built Humble workspace:
 
 ```bash
 source setup_env.sh
 cd ros2_ws
 colcon build --symlink-install
-
-# Run automated tests (24/24 pass)
-colcon test --packages-select tb4_ouster_autonomy
+colcon test --packages-select tb4_ouster_autonomy --event-handlers console_direct+
 colcon test-result --all --verbose
 ```
 
-### 4. Stationary Diagnostics (Docked Mode)
+Tests use domain 88 and localhost-only discovery. CI runs on every branch and PR, installs declared ROS dependencies, builds the package, and rejects skipped ROS tests. The integration test verifies actual final velocity output under healthy telemetry, a nearby obstacle, cleared obstacles, and camera dropout.
 
-Run the diagnostics without moving the robot to verify that all sensors, transforms, and base telemetry are healthy:
+## Offboard compute and Zenoh
 
-```bash
-export ROS_DOMAIN_ID=0
-export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_create3.xml
-
-# Run with sensor drivers launched:
-ros2 launch tb4_ouster_autonomy robot.launch.py mode:=diagnose start_sensor:=true
-```
-
-Expected topic streams:
-- `/scan`: ~10 Hz (Slamtec RPLIDAR S2)
-- `/camera/camera/color/image_raw`: ~30 FPS (D455 RGB)
-- `/camera/camera/depth/image_rect_raw`: ~30 FPS (D455 Depth)
-- `/camera/camera/depth/color/points`: ~15 Hz (D455 3D Point Cloud)
-- `/odom`: ~20-62 Hz (Create 3 wheel odometry)
-- `/imu`: ~62-100 Hz (Create 3 internal IMU)
-- `/hazard_detection`: ~62 Hz (Create 3 bump/cliff sensors)
-- `/battery_state`: ~1 Hz (Create 3 battery telemetry)
-- `/dock_status`: ~1 Hz (`is_docked: true`)
-
-### 5. Autonomous Frontier Mapping (Headless SSH — No Manual Driving Needed)
-
-Once the Jetson Orin Nano is placed inside the Create 3 cargo bay (with monitor, keyboard, and wall Ethernet unplugged), SSH into the robot from the Jetson AGX Orin and run:
-
-```bash
-cd ~/TurtleBot4Lite_OusterOS0
-./scripts/run_autonomous_mapping.sh
-```
-
-What this does automatically:
-1. **Auto-Undocks** the Create 3 if it is currently on the charging dock.
-2. **Performs a 360° initial scan** to seed `slam_toolbox` and the RealSense D455 3D VoxelLayer.
-3. **Explores frontiers autonomously**: Detects boundaries between known free space and unknown space in `/map` and sends `NavigateToPose` goals to Nav2 while avoiding 2D/3D obstacles and bumper hazards.
-4. **Saves the map automatically**: Periodically checkpoints `arena_map.pgm` & `arena_map.yaml` every 20 seconds, and **immediately saves the final map when exploration finishes OR when you press `Ctrl+C` over SSH**.
-
-### 6. Manual Mapping Workflow (Optional)
-
-If you prefer to drive the robot manually while mapping:
-
-1. **Undock the Create 3** (if docked):
-   ```bash
-   ros2 action send_goal /undock irobot_create_msgs/action/Undock "{}"
-   ```
-2. **Start mapping**:
-   ```bash
-   ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=false
-   ```
-3. **Teleoperate**:
-   ```bash
-   ros2 run teleop_twist_keyboard teleop_twist_keyboard
-   ```
-4. **Save map**:
-   ```bash
-   ros2 service call /explore/save_map std_srvs/srv/Trigger "{}"
-   # Or via map_saver_cli:
-   ros2 run nav2_map_server map_saver_cli -f "$(pwd)/arena_map"
-   ```
-
-### 7. Autonomous Navigation (Headless SSH or with RViz on AGX)
-
-To run autonomous navigation using the saved `arena_map.yaml`:
-
-```bash
-cd ~/TurtleBot4Lite_OusterOS0
-./scripts/run_autonomous_navigation.sh
-```
-
----
-
-## Research & Architectural Analysis
-
-### Goal 4: Vision-Language-Action (VLA) Target Following & Image Streaming Architecture
-- **RealSense 2026 Trends Alignment**: Combines edge visual-spatial intelligence (wide 86°×57° FOV, global shutter, 95 mm baseline depth) with foundation vision-language models.
-- **Hardware Physics (D435 vs. D455)**: The D455 increases baseline from 50 mm to 95 mm, reducing Z-depth error by half at 4 m ($<2\%$ Z-error at 4 m), providing stable target tracking and person following across 0.4 m to 6.0 m.
-- **Optimal Streaming Protocol (Nano $\to$ AGX)**:
-  - *Raw RGB over Wi-Fi is Infeasible*: Raw $640\times 480 \times 3$ RGB @ 30 FPS requires $\approx 220\text{ Mbps}$ ($27.6\text{ MB/s}$), causing severe Wi-Fi buffer bloat, packet drops, and $>500\text{ ms}$ latency spikes.
-  - *Recommended Method: Compressed Image Transport*:
-    - Use ROS 2 `compressed_image_transport` on `/camera/camera/color/image_raw/compressed` (already built into `realsense2_camera`).
-    - Compresses frames to JPEG ($\approx 35\text{ KB/frame}$), reducing bandwidth to **$\approx 350\text{ KB/s}$ at 10 Hz** or $\approx 1.0\text{ MB/s}$ at 30 Hz ($<8\text{ Mbps}$).
-    - The offboard Jetson AGX decodes frames instantaneously using OpenCV (`cv2.imdecode`) or NVIDIA VPI with $<5\text{ ms}$ latency.
-  - *Alternative: NVENC Hardware H.264/RTP*: For 30 FPS continuous visual servoing, stream via GStreamer NVENC hardware encoder at $1.5\text{ Mbps}$ with $<25\text{ ms}$ glass-to-glass latency.
-- **Control Feedback Loop (AGX $\to$ Nano)**:
-  - The offboard Jetson AGX runs quantized OpenVLA-7B / SmolVLM-Instruct at 3–10 Hz, emitting high-level target bounding boxes, waypoint poses, or normalized velocity commands (`/vla/cmd_vel`).
-  - The onboard Jetson Orin Nano receives commands, passes them through the local LiDAR proximity safety gate ($<0.35\text{ m}$ dynamic brake) and Nav2 local planner, and forwards velocity to Create 3 `/cmd_vel`.
-  - *Fail-Safe Watchdog*: A 10 Hz heartbeat watchdog on the Nano automatically halts the robot if Wi-Fi packets drop for $>150\text{ ms}$.
-  - *Full Setup Guide*: Complete step-by-step instructions for configuring the Jetson AGX Orin with the TP-Link nano router and FastDDS Discovery Server are documented in [`docs/JETSON_AGX_ORIN_SETUP.md`](docs/JETSON_AGX_ORIN_SETUP.md). Automated configuration script: [`scripts/setup_agx_orin_network.sh`](scripts/setup_agx_orin_network.sh).
-
-### Goal 5: Custom Acceleration Controller Adapter
-- **Constant Time Headway (CTH) Spacing Policy**:
-  $$d_{\text{des}} = d_0 + h \cdot v_{\text{follower}}$$
-  where $d_0 = 0.8\text{ m}$ standoff and $h = 1.0\text{ s}$ headway time.
-- **Wheel Slip & Jerk Limiting**:
-  Create 3 wheel contact limits maximum linear acceleration to $a_{\text{cmd}} \le 0.5\text{ m/s}^2$ and angular acceleration to $\alpha_{\text{cmd}} \le 1.2\text{ rad/s}^2$, with jerk clamped at $j \le 1.5\text{ m/s}^3$ to prevent tire skid on slick flooring.
-- **Multi-Tier Safety Gate Hierarchy**:
-  1. *Hardware Bumper Gate* (`/hazard_detection`): Immediate zero-velocity estop.
-  2. *LiDAR Proximity Gate* (`/scan` min distance $<0.35$ m): Automatic deceleration and stop.
-  3. *Costmap Obstacle Inflation Gate* (Nav2 D455 VoxelLayer): Path replanning around dynamic obstacles.
-
----
-
-## References
-
-- [Create 3 Documentation & Setup](https://iroboteducation.github.io/create3_docs/setup/ubuntu2204/)
-- [RealSense ROS Documentation](https://github.com/realsenseai/realsense-ros)
-- [Intel RealSense D455 Specifications](https://www.intel.com/content/www/us/en/products/sku/205847/intel-realsense-depth-camera-d455/specifications.html)
-- [Slamtec RPLIDAR S2 User Manual & SDK](https://github.com/slamtec/rplidar_sdk)
-- [NVIDIA Isaac ROS RealSense Setup](https://nvidia-isaac-ros.github.io/v/release-3.2/getting_started/hardware_setup/sensors/realsense_setup.html)
+Fast DDS remains the Create 3 transport. A native Zenoh process cannot replace the embedded DDS endpoint by changing an environment variable. A future offboard Zenoh bridge should expose a small allowlist of telemetry and high-level requests, keep all local safety checks, and be benchmarked against the current link before adoption. See [offboard networking](docs/JETSON_AGX_ORIN_SETUP.md). No VLA controller or `/vla/cmd_vel` watchdog is implemented in this branch.

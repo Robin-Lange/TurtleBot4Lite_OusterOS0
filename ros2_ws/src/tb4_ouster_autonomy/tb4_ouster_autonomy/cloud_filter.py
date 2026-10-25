@@ -1,337 +1,84 @@
-#!/usr/bin/env python3
-"""Point cloud filter node for iRobot Create 3 + Ouster OS0.
+"""Transform D455 observations into base_link before range, height, and self cropping."""
 
-Implements Enhanced RANSAC ground plane segmentation based on:
-- PMC9862692: A Survey on Ground Segmentation Methods for Automotive LiDAR Sensors
-- MengWoods/enhanced-RANSAC-ground-segmentation
-
-Vectorized pipeline:
-1. Filters robot self-returns inside the Create 3 + payload physical bounding envelope.
-2. Filters out-of-range returns (min_range / max_range).
-3. Selects ground candidate seeds near the expected floor level.
-4. Generates plane hypotheses with:
-   - Normal angle gating (n_z >= cos(theta_max)) to reject vertical walls and boxes.
-   - Floor height intercept gating (|d - d_nominal| <= tol) to reject non-floor planes.
-5. Inlier counting and SVD/least-squares plane refinement.
-6. Temporal exponential moving average (EMA) smoothing to prevent frame-to-frame plane jitter.
-7. Partitions point cloud into obstacles (/ouster/cloud_filtered) and ground (/ouster/ground_points).
-"""
-
+from copy import deepcopy
 import math
 import time
-from typing import Optional, Tuple
 
 import numpy as np
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.time import Time
 from sensor_msgs.msg import PointCloud2
 import sensor_msgs_py.point_cloud2 as pc2
+from tf2_ros import Buffer, TransformException, TransformListener
+
+from .systems import obstacle_filter_system, transform_points
 
 
 class CloudFilter(Node):
-    """Filters robot self-returns, extracts ground via Enhanced RANSAC, and outputs obstacles."""
-
     def __init__(self):
         super().__init__("cloud_filter")
-
-        # Topics and rates
-        self.declare_parameter("input_topic", "/ouster/points")
-        self.declare_parameter("output_topic", "/ouster/cloud_filtered")
-        self.declare_parameter("ground_topic", "/ouster/ground_points")
-        self.declare_parameter("publish_ground_cloud", True)
-        self.declare_parameter("target_rate_hz", 10.0)
-        self.declare_parameter("use_reliable_qos", True)
-
-        # Bounding box of robot envelope to filter self-returns
-        # Approx +/-0.22m in X/Y, -0.25m to +0.06m in Z relative to os_lidar/laser_frame
-        self.declare_parameter("self_box_min_x", -0.22)
-        self.declare_parameter("self_box_max_x", 0.22)
-        self.declare_parameter("self_box_min_y", -0.22)
-        self.declare_parameter("self_box_max_y", 0.22)
-        self.declare_parameter("self_box_min_z", -0.25)
-        self.declare_parameter("self_box_max_z", 0.06)
-
-        # Range and height limits relative to laser_frame
-        self.declare_parameter("min_range", 0.30)
-        self.declare_parameter("max_range", 25.0)
-        self.declare_parameter("min_height", -0.12)
-        self.declare_parameter("max_height", 1.50)
-
-        # Enhanced RANSAC ground segmentation parameters
-        self.declare_parameter("enable_ransac", True)
-        self.declare_parameter("ransac_iterations", 60)
-        self.declare_parameter("ransac_inlier_thresh", 0.025)
-        self.declare_parameter("ransac_max_tilt_deg", 15.0)
-        self.declare_parameter("nominal_floor_z", -0.1712)
-        self.declare_parameter("floor_z_tolerance", 0.08)
-        self.declare_parameter("ground_seed_min_z", -0.25)
-        self.declare_parameter("ground_seed_max_z", -0.05)
-        self.declare_parameter("ground_obstacle_margin", 0.03)
-        self.declare_parameter("underground_noise_margin", 0.05)
-        self.declare_parameter("max_obstacle_height_above_ground", 1.80)
-        self.declare_parameter("temporal_ema_alpha", 0.80)
-        self.declare_parameter("min_ground_inliers", 30)
-
-        # Read parameters
-        self.input_topic = self.get_parameter("input_topic").value
-        self.output_topic = self.get_parameter("output_topic").value
-        self.ground_topic = self.get_parameter("ground_topic").value
-        self.publish_ground_cloud = self.get_parameter("publish_ground_cloud").value
-        self.target_rate_hz = self.get_parameter("target_rate_hz").value
-        self.use_reliable_qos = bool(self.get_parameter("use_reliable_qos").value)
-        self.min_period_s = 1.0 / self.target_rate_hz if self.target_rate_hz > 0 else 0.0
-        self.last_published_time_s = 0.0
-
-        self.self_box_min_x = self.get_parameter("self_box_min_x").value
-        self.self_box_max_x = self.get_parameter("self_box_max_x").value
-        self.self_box_min_y = self.get_parameter("self_box_min_y").value
-        self.self_box_max_y = self.get_parameter("self_box_max_y").value
-        self.self_box_min_z = self.get_parameter("self_box_min_z").value
-        self.self_box_max_z = self.get_parameter("self_box_max_z").value
-
-        self.min_range = self.get_parameter("min_range").value
-        self.max_range = self.get_parameter("max_range").value
-        self.min_height = self.get_parameter("min_height").value
-        self.max_height = self.get_parameter("max_height").value
-
-        self.enable_ransac = self.get_parameter("enable_ransac").value
-        self.ransac_iterations = int(self.get_parameter("ransac_iterations").value)
-        self.ransac_inlier_thresh = self.get_parameter("ransac_inlier_thresh").value
-        self.ransac_max_tilt_deg = self.get_parameter("ransac_max_tilt_deg").value
-        self.min_cos_tilt = math.cos(math.radians(self.ransac_max_tilt_deg))
-        self.nominal_floor_z = self.get_parameter("nominal_floor_z").value
-        self.nominal_d = -float(self.nominal_floor_z)
-        self.floor_z_tolerance = self.get_parameter("floor_z_tolerance").value
-        self.ground_seed_min_z = self.get_parameter("ground_seed_min_z").value
-        self.ground_seed_max_z = self.get_parameter("ground_seed_max_z").value
-        self.ground_obstacle_margin = self.get_parameter("ground_obstacle_margin").value
-        self.underground_noise_margin = self.get_parameter("underground_noise_margin").value
-        self.max_obstacle_height_above_ground = self.get_parameter("max_obstacle_height_above_ground").value
-        self.temporal_ema_alpha = self.get_parameter("temporal_ema_alpha").value
-        self.min_ground_inliers = int(self.get_parameter("min_ground_inliers").value)
-
-        # Smoothed plane state: plane equation n_x*x + n_y*y + n_z*z + d = 0
-        # Initialized to perfectly calibrated level floor
-        self.prev_normal = np.array([0.0, 0.0, 1.0], dtype=np.float32)
-        self.prev_d = float(self.nominal_d)
-
-        # Publishers & Subscriptions
-        # Subscribing with BEST_EFFORT (qos_profile_sensor_data) ensures compatibility
-        # with both BEST_EFFORT and RELIABLE publishers in ROS 2 / DDS
-        sub_qos = qos_profile_sensor_data
-
+        defaults = {
+            "input_topic": "/camera/camera/depth/color/points",
+            "output_topic": "/camera/cloud_filtered", "target_frame": "base_link",
+            "target_rate_hz": 15.0, "min_range": 0.10, "max_range": 6.0,
+            "min_height": 0.04, "max_height": 1.5,
+            "self_box_min_x": -0.18, "self_box_max_x": 0.18,
+            "self_box_min_y": -0.18, "self_box_max_y": 0.18,
+            "self_box_min_z": -0.20, "self_box_max_z": 0.25,
+        }
+        for name, value in defaults.items():
+            self.declare_parameter(name, value)
+            setattr(self, name, self.get_parameter(name).value)
+        if not math.isfinite(self.target_rate_hz) or self.target_rate_hz <= 0:
+            raise ValueError("target_rate_hz must be finite and positive")
+        if not 0 <= self.min_range < self.max_range or not self.min_height < self.max_height:
+            raise ValueError("Invalid crop limits")
+        self.box_min = np.array([getattr(self, f"self_box_min_{axis}") for axis in "xyz"])
+        self.box_max = np.array([getattr(self, f"self_box_max_{axis}") for axis in "xyz"])
+        self.last_published_time_s = -math.inf
+        self.buffer = Buffer()
+        self.listener = TransformListener(self.buffer, self)
         self.sub_cloud = self.create_subscription(
-            PointCloud2,
-            self.input_topic,
-            self.cloud_callback,
-            sub_qos,
+            PointCloud2, self.input_topic, self.cloud_callback, qos_profile_sensor_data,
         )
+        self.pub_cloud = self.create_publisher(PointCloud2, self.output_topic, 1)
 
-        self.pub_cloud = self.create_publisher(
-            PointCloud2,
-            self.output_topic,
-            10,
-        )
-
-        self.pub_ground = (
-            self.create_publisher(PointCloud2, self.ground_topic, 10)
-            if self.publish_ground_cloud
-            else None
-        )
-
-        self.get_logger().info(
-            f"CloudFilter initialized. Filtering {self.input_topic} -> {self.output_topic} "
-            f"at rate <= {self.target_rate_hz} Hz. Enhanced RANSAC: {self.enable_ransac}."
-        )
-
-    def fit_ground_plane_ransac(self, seeds: np.ndarray) -> Tuple[np.ndarray, float, bool]:
-        """Fit ground plane using Enhanced RANSAC with normal & height gating and SVD refinement.
-
-        Returns:
-            Tuple of (normal_vector (3,), plane_d, success_bool)
-        """
-        n_seeds = len(seeds)
-        if n_seeds < self.min_ground_inliers:
-            return self.prev_normal.copy(), self.prev_d, False
-
-        # Subsample seeds if pool is large to ensure deterministic <3ms execution
-        if n_seeds > 600:
-            sub_idx = np.random.choice(n_seeds, 600, replace=False)
-            seeds_sample = seeds[sub_idx]
-        else:
-            seeds_sample = seeds
-
-        sample_len = len(seeds_sample)
-        k_iter = min(self.ransac_iterations, sample_len * 2)
-
-        # Vectorized hypothesis generation
-        sample_indices = np.random.randint(0, sample_len, size=(k_iter, 3))
-        samples = seeds_sample[sample_indices]  # shape: (K, 3, 3)
-
-        v1 = samples[:, 1] - samples[:, 0]
-        v2 = samples[:, 2] - samples[:, 0]
-        n_hypo = np.cross(v1, v2)
-        norms = np.linalg.norm(n_hypo, axis=1, keepdims=True)
-
-        valid_norm = (norms[:, 0] > 1e-6)
-        norms[~valid_norm] = 1.0
-        n_hypo = n_hypo / norms
-
-        # Ensure normals point upward
-        flip = n_hypo[:, 2] < 0
-        n_hypo[flip] = -n_hypo[flip]
-
-        # Normal Angle Gating: normal must be roughly upright (reject vertical walls/boxes)
-        valid_n = (n_hypo[:, 2] >= self.min_cos_tilt)
-
-        # Intercept calculation: n · p + d = 0  =>  d = -n · p
-        d_hypo = -np.sum(n_hypo * samples[:, 0], axis=1)
-
-        # Height Intercept Gating: floor intercept must match sensor optical height within tolerance
-        valid_d = (np.abs(d_hypo - self.nominal_d) <= self.floor_z_tolerance)
-
-        valid_mask = valid_norm & valid_n & valid_d
-        valid_indices = np.where(valid_mask)[0]
-
-        best_count = 0
-        best_n = self.prev_normal.copy()
-        best_d = self.prev_d
-        best_inliers_mask: Optional[np.ndarray] = None
-
-        if len(valid_indices) > 0:
-            valid_n_mat = n_hypo[valid_indices]  # (V, 3)
-            valid_d_arr = d_hypo[valid_indices]  # (V,)
-
-            # Vectorized distance computation from all valid hypotheses to seeds
-            # dists shape: (V, sample_len)
-            dists = np.abs(np.dot(valid_n_mat, seeds_sample.T) + valid_d_arr[:, None])
-            inliers_mat = dists <= self.ransac_inlier_thresh
-            counts = np.sum(inliers_mat, axis=1)
-
-            best_v_idx = int(np.argmax(counts))
-            best_count = int(counts[best_v_idx])
-            best_n = valid_n_mat[best_v_idx]
-            best_d = float(valid_d_arr[best_v_idx])
-            best_inliers_mask = inliers_mat[best_v_idx]
-
-        # SVD / Covariance refinement on inliers
-        if best_count >= self.min_ground_inliers and best_inliers_mask is not None:
-            inlier_pts = seeds_sample[best_inliers_mask]
-            centroid = np.mean(inlier_pts, axis=0)
-            centered = inlier_pts - centroid
-            cov = np.dot(centered.T, centered)
-            _, eigenvectors = np.linalg.eigh(cov)
-            n_opt = eigenvectors[:, 0]
-            if n_opt[2] < 0:
-                n_opt = -n_opt
-            d_opt = -float(np.dot(n_opt, centroid))
-            return n_opt.astype(np.float32), d_opt, True
-
-        return best_n, best_d, False
-
-    def cloud_callback(self, in_msg: PointCloud2):
-        now_s = time.monotonic()
-        if (now_s - self.last_published_time_s) < (self.min_period_s * 0.9):
-            # Downsample to target rate to protect Jetson CPU
+    def cloud_callback(self, msg):
+        now = time.monotonic()
+        if now - self.last_published_time_s < 1.0 / self.target_rate_hz:
             return
-
         try:
-            field_names = [f.name for f in in_msg.fields]
-            if "x" not in field_names or "y" not in field_names or "z" not in field_names:
+            if not {"x", "y", "z"}.issubset(f.name for f in msg.fields) or not msg.header.frame_id:
                 return
-
-            raw_points = pc2.read_points(in_msg, field_names=["x", "y", "z"], skip_nans=True)
-            if len(raw_points) == 0:
-                return
-
-            pts = np.column_stack((raw_points["x"], raw_points["y"], raw_points["z"])).astype(np.float32)
-            if pts.size == 0:
-                return
-
-            x = pts[:, 0]
-            y = pts[:, 1]
-            z = pts[:, 2]
-
-            # 1. Range filter
-            dist_sq = x * x + y * y + z * z
-            valid_mask = (dist_sq >= (self.min_range * self.min_range)) & (
-                dist_sq <= (self.max_range * self.max_range)
-            )
-
-            # 2. Self-filter: remove points inside the robot bounding envelope
-            in_self_box = (
-                (x >= self.self_box_min_x)
-                & (x <= self.self_box_max_x)
-                & (y >= self.self_box_min_y)
-                & (y <= self.self_box_max_y)
-                & (z >= self.self_box_min_z)
-                & (z <= self.self_box_max_z)
-            )
-            valid_mask &= ~in_self_box
-
-            valid_points = pts[valid_mask]
-            if valid_points.size == 0:
-                return
-
-            if self.enable_ransac:
-                # 3. Enhanced RANSAC ground segmentation
-                cand_z = valid_points[:, 2]
-                seed_mask = (cand_z >= self.ground_seed_min_z) & (cand_z <= self.ground_seed_max_z)
-                seeds = valid_points[seed_mask]
-
-                fitted_normal, fitted_d, success = self.fit_ground_plane_ransac(seeds)
-
-                # 4. Temporal Exponential Moving Average (EMA) smoothing
-                if success:
-                    alpha = self.temporal_ema_alpha
-                    smoothed_normal = alpha * fitted_normal + (1.0 - alpha) * self.prev_normal
-                    normal_norm = np.linalg.norm(smoothed_normal)
-                    if normal_norm > 1e-6:
-                        smoothed_normal = smoothed_normal / normal_norm
-                    smoothed_d = alpha * fitted_d + (1.0 - alpha) * self.prev_d
-                    self.prev_normal = smoothed_normal.astype(np.float32)
-                    self.prev_d = float(smoothed_d)
-                # If unsuccessful, preserve self.prev_normal and self.prev_d
-
-                # 5. Partition points by height relative to estimated ground plane
-                # Signed height h = n · p + d
-                h = np.dot(valid_points, self.prev_normal) + self.prev_d
-
-                # Obstacles: points strictly above ground margin and below ceiling
-                obs_mask = (h > self.ground_obstacle_margin) & (
-                    h <= self.max_obstacle_height_above_ground
-                )
-                filtered_obstacles = valid_points[obs_mask]
-
-                # Ground: points within ground tolerance band
-                ground_mask = (h >= -self.underground_noise_margin) & (
-                    h <= self.ground_obstacle_margin
-                )
-                ground_points = valid_points[ground_mask]
-
-                # Publish obstacle point cloud
-                out_msg = pc2.create_cloud_xyz32(in_msg.header, filtered_obstacles)
-                self.pub_cloud.publish(out_msg)
-
-                # Publish ground point cloud for inspection/visualization
-                if self.pub_ground is not None:
-                    ground_msg = pc2.create_cloud_xyz32(in_msg.header, ground_points)
-                    self.pub_ground.publish(ground_msg)
-
+            raw = pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=False)
+            # Humble sensor_msgs_py versions can return a generator or a structured ndarray.
+            if isinstance(raw, np.ndarray) and raw.dtype.names:
+                points = np.column_stack([raw[axis].reshape(-1) for axis in "xyz"])
             else:
-                # Fallback: legacy fixed-height filtering
-                z_valid = valid_points[:, 2]
-                legacy_mask = (z_valid >= self.min_height) & (z_valid <= self.max_height)
-                filtered_points = valid_points[legacy_mask]
-
-                out_msg = pc2.create_cloud_xyz32(in_msg.header, filtered_points)
-                self.pub_cloud.publish(out_msg)
-
-            self.last_published_time_s = now_s
-
-        except Exception as exc:
-            self.get_logger().error(f"Error in cloud_callback: {exc}", throttle_duration_sec=2.0)
+                points = np.asarray(list(raw), dtype=np.float32).reshape(-1, 3)
+            if points.size and not np.isfinite(points).all(axis=1).any():
+                return  # Invalid depth is not evidence of an empty scene.
+            if points.size and not (np.linalg.norm(points, axis=1) > 1e-9).any():
+                return  # An all-zero depth array is invalid, not a clear scene.
+            if msg.header.frame_id != self.target_frame:
+                transform = self.buffer.lookup_transform(
+                    self.target_frame, msg.header.frame_id, Time.from_msg(msg.header.stamp),
+                ).transform
+                t, q = transform.translation, transform.rotation
+                points = transform_points(points, (t.x, t.y, t.z), (q.x, q.y, q.z, q.w))
+            filtered = obstacle_filter_system(
+                points, self.min_range, self.max_range, self.min_height, self.max_height,
+                self.box_min, self.box_max,
+            )
+            header = deepcopy(msg.header)
+            header.frame_id = self.target_frame
+            # Keep acquisition time, including empty valid clouds; never stamp stale data as now.
+            self.pub_cloud.publish(pc2.create_cloud_xyz32(header, filtered))
+            self.last_published_time_s = now
+        except (TransformException, ValueError, TypeError) as exc:
+            self.get_logger().warn(f"Dropping cloud: {exc}", throttle_duration_sec=2.0)
 
 
 def main(args=None):
@@ -342,12 +89,5 @@ def main(args=None):
     except (KeyboardInterrupt, rclpy.executors.ExternalShutdownException):
         pass
     finally:
-        try:
-            node.destroy_node()
-        except Exception:
-            pass
+        node.destroy_node()
         rclpy.try_shutdown()
-
-
-if __name__ == "__main__":
-    main()

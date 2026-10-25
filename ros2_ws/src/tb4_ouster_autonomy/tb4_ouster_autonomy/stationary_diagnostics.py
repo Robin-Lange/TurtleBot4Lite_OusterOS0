@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only stationary ROS 2 diagnostics for RPLIDAR S2, RealSense D435, and Create 3.
+"""Read-only stationary ROS 2 diagnostics for RPLIDAR S2, RealSense D455, and Create 3.
 
 This program subscribes only. It never commands motion or publishes ROS data.
 Source the ROS 2 underlay and this repository's workspace overlay before use.
@@ -18,7 +18,7 @@ from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.utilities import remove_ros_args
 from nav_msgs.msg import Odometry
-from sensor_msgs.msg import BatteryState, CameraInfo, Image, Imu, LaserScan, PointCloud2
+from sensor_msgs.msg import BatteryState, Image, Imu, LaserScan, PointCloud2
 from tf2_msgs.msg import TFMessage
 from irobot_create_msgs.msg import DockStatus, HazardDetectionVector
 
@@ -133,4 +133,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

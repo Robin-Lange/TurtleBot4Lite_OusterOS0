@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: ["**"]
   pull_request:
-    branches: [ main ]
+    branches: ["**"]
   workflow_dispatch:
 
 jobs:
@@ -24,12 +24,15 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
-          pip install flake8 pyyaml
+          pip install flake8 pyyaml pytest numpy
 
       - name: Run Flake8 Code Style Check
         run: |
           set -euo pipefail
           flake8 --config .flake8 ros2_ws/src/
+
+      - name: Test pure systems and configuration contracts
+        run: python -m pytest -q ros2_ws/src/tb4_ouster_autonomy/test
 
       - name: Validate XML and Configuration Syntax
         run: |
@@ -58,7 +61,7 @@ jobs:
             python3-pytest \
             python3-pip
           rosdep update
-          rosdep install --from-paths ros2_ws/src --ignore-src -y -r --rosdistro humble
+          rosdep install --from-paths ros2_ws/src --ignore-src -y --rosdistro humble
 
       - name: Colcon Build
         shell: bash
@@ -86,7 +89,9 @@ jobs:
           suites = [root] if root.tag == 'testsuite' else root.findall('.//testsuite')
           tests = sum(int(suite.attrib.get('tests', '0')) for suite in suites)
 
+          skipped = sum(int(suite.attrib.get('skipped', '0')) for suite in suites)
           assert tests > 0, 'No tests executed for tb4_ouster_autonomy'
+          assert skipped == 0, f'{skipped} ROS tests were unexpectedly skipped'
           print(f'pytest.xml reports {tests} tests executed')
           PY
 

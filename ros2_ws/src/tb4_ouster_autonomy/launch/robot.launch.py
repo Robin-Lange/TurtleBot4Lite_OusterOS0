@@ -15,7 +15,6 @@ from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
     LogInfo,
-    SetEnvironmentVariable,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -39,13 +38,13 @@ def generate_launch_description():
 
     map_arg = DeclareLaunchArgument(
         'map',
-        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map.yaml',
+        default_value=os.path.expanduser('~/maps/arena_map.yaml'),
         description='Full path to map yaml (navigate mode only)',
     )
 
     map_output_prefix_arg = DeclareLaunchArgument(
         'map_output_prefix',
-        default_value='/home/ivlaborin2/TurtleBot4Lite_OusterOS0/arena_map',
+        default_value=os.path.expanduser('~/maps/arena_map'),
         description='File prefix where autonomous mapping saves .pgm and .yaml files',
     )
 
@@ -108,7 +107,7 @@ def generate_launch_description():
     )
 
     map_info = LogInfo(
-        msg='Starting in MAP mode — drive with teleop_twist_keyboard, save map with map_saver_cli.',
+        msg='MAP mode: use ros2 run tb4_ouster_autonomy teleop_keyboard; save with map_saver_cli.',
         condition=IfCondition(is_map),
     )
 
@@ -191,13 +190,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        SetEnvironmentVariable('ROS_DOMAIN_ID', '0'),
-        SetEnvironmentVariable('RMW_IMPLEMENTATION', 'rmw_fastrtps_cpp'),
-        SetEnvironmentVariable(
-            'FASTRTPS_DEFAULT_PROFILES_FILE',
-            '/home/ivlaborin2/TurtleBot4Lite_OusterOS0/config/fastdds_create3.xml',
-        ),
-        SetEnvironmentVariable('ROS_LOCALHOST_ONLY', '0'),
         mode_arg,
         map_arg,
         map_output_prefix_arg,
