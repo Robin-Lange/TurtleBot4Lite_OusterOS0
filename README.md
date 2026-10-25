@@ -131,7 +131,7 @@ colcon test --packages-select tb4_ouster_autonomy --event-handlers console_direc
 colcon test-result --all --verbose
 ```
 
-Tests use domain 88 and localhost-only discovery. CI runs on every branch and PR, installs declared ROS dependencies, builds the package, and rejects skipped ROS tests. The integration test verifies actual final velocity output under healthy telemetry, a nearby obstacle, cleared obstacles, and camera dropout.
+Tests use domain 88 and localhost-only discovery. CI runs on integration-branch pushes and all PRs, builds and tests on x86-64 and native ARM64, and rejects skipped ROS tests. See [CI configuration and required checks](docs/CI.md). The integration test verifies actual final velocity output under healthy telemetry, a nearby obstacle, cleared obstacles, and camera dropout.
 
 ## Offboard compute and Zenoh
 

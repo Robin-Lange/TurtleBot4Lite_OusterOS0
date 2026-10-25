@@ -1,0 +1,22 @@
+version: 2
+# GitHub activates this configuration after it reaches the repository's default branch.
+# Version-update PRs target the actively developed ROS branch.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: feature/realsense-rplidar-navigation
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ['*']
+  - package-ecosystem: pip
+    directory: /.github
+    target-branch: feature/realsense-rplidar-navigation
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      ci-tools:
+        patterns: ['*']
