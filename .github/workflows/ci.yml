@@ -1,104 +1,178 @@
-name: CI/CD Pipeline
+name: CI
 
+# Feature branches are checked through PRs; integration branches also run after merges.
+# Avoid path filters here so a required CI check cannot remain pending on docs-only PRs.
 on:
   push:
-    branches: ["**"]
+    branches: [main, feature/realsense-rplidar-navigation]
   pull_request:
-    branches: ["**"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  ROS_DOMAIN_ID: "88"
+  ROS_LOCALHOST_ONLY: "1"
+  RMW_IMPLEMENTATION: rmw_fastrtps_cpp
+  PYTHONUNBUFFERED: "1"
+
 jobs:
-  lint:
+  quality:
     name: Code Quality and Linting
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Set up Python 3.10 and pip cache
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.10"
+          cache: pip
+          cache-dependency-path: .github/requirements-ci.txt
 
-      - name: Install Linting Tools
+      - name: Install pinned CI tools
+        run: python -m pip install -r .github/requirements-ci.txt
+
+      - name: Validate workflows and shell scripts
         run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install flake8 pyyaml pytest numpy
+          bash scripts/ci/check_workflows.sh
+          shellcheck --severity=warning --exclude=SC1090,SC1091 setup_env.sh scripts/*.sh scripts/ci/*.sh
 
-      - name: Run Flake8 Code Style Check
+      - name: Lint and compile Python
         run: |
-          set -euo pipefail
-          flake8 --config .flake8 ros2_ws/src/
+          python -m flake8 --config .flake8 ros2_ws/src/ scripts/ci/
+          python -m compileall -q ros2_ws/src/ scripts/
 
-      - name: Test pure systems and configuration contracts
-        run: python -m pytest -q ros2_ws/src/tb4_ouster_autonomy/test
-
-      - name: Validate XML and Configuration Syntax
+      - name: Run pure systems and configuration tests
         run: |
-          set -euo pipefail
-          python3 -c "import xml.etree.ElementTree as ET; ET.parse('ros2_ws/src/tb4_ouster_autonomy/package.xml'); print('package.xml is valid XML')"
-          python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/launch/*.py
-          python3 -m py_compile ros2_ws/src/tb4_ouster_autonomy/tb4_ouster_autonomy/*.py
-          python3 -c "import yaml, glob; [yaml.safe_load(open(f)) for f in glob.glob('ros2_ws/src/tb4_ouster_autonomy/config/*.yaml')]; print('YAML configs valid')"
+          python -m pytest -q \
+            ros2_ws/src/tb4_ouster_autonomy/test/test_systems.py \
+            ros2_ws/src/tb4_ouster_autonomy/test/test_configuration.py \
+            ros2_ws/src/tb4_ouster_autonomy/test/test_autonomous_explorer.py \
+            scripts/ci/test_report_tests.py \
+            --junitxml=test-results/pure.xml
+
+      - name: Report pure test results
+        if: ${{ always() }}
+        run: python scripts/ci/report_tests.py test-results/pure.xml --label "Pure systems and configuration"
+
+      - name: Retain pure test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pure-test-results
+          path: test-results/
+          retention-days: 14
+          if-no-files-found: warn
 
   build-and-test:
-    name: ROS 2 Humble Build & Test
-    runs-on: ubuntu-22.04
+    name: ROS 2 Humble Build & Test (${{ matrix.arch }})
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
     container:
       image: ros:humble-ros-base-jammy
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      ROS_DISTRO: humble
+      TEST_ARCH: ${{ matrix.arch }}
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - name: Install System and ROS Build Dependencies
-        shell: bash
+      - name: Install declared system and ROS dependencies
         run: |
-          set -euo pipefail
-          apt-get update
-          apt-get install -y \
-            python3-colcon-common-extensions \
-            python3-pytest \
-            python3-pip
-          rosdep update
-          rosdep install --from-paths ros2_ws/src --ignore-src -y --rosdistro humble
+          mkdir -p test-results
+          apt-get update 2>&1 | tee test-results/apt-update.log
+          apt-get install -y --no-install-recommends \
+            python3-colcon-common-extensions python3-pytest \
+            2>&1 | tee test-results/build-dependencies.log
+          rosdep update --rosdistro humble 2>&1 | tee test-results/rosdep-update.log
+          rosdep install --from-paths ros2_ws/src --ignore-src -y --rosdistro humble \
+            2>&1 | tee test-results/rosdep-install.log
 
-      - name: Colcon Build
-        shell: bash
+      - name: Record architecture and installed versions
         run: |
-          set -eo pipefail
+          {
+            uname -m
+            python3 --version
+            dpkg-query -W 'ros-humble-*' python3-numpy
+          } > test-results/environment.txt
+          test "$(dpkg --print-architecture)" = "$TEST_ARCH"
+
+      - name: Build workspace
+        run: |
+          set +u
           source /opt/ros/humble/setup.bash
           set -u
           cd ros2_ws
-          colcon build --symlink-install
+          colcon build --symlink-install --event-handlers console_direct+ \
+            2>&1 | tee ../test-results/colcon-build.log
 
-      - name: Colcon Test
-        shell: bash
+      - name: Run all ROS tests in an isolated domain
         run: |
-          set -eo pipefail
+          set +u
           source /opt/ros/humble/setup.bash
           source ros2_ws/install/local_setup.bash
           set -u
           cd ros2_ws
-          PYTHONNOUSERSITE=1 colcon test --event-handlers console_direct+
-          colcon test-result --all --verbose
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
+          PYTHONNOUSERSITE=1 colcon test --packages-select tb4_ouster_autonomy \
+            --event-handlers console_direct+ --return-code-on-test-failure \
+            2>&1 | tee ../test-results/colcon-test.log
 
-          root = ET.parse('build/tb4_ouster_autonomy/pytest.xml').getroot()
-          suites = [root] if root.tag == 'testsuite' else root.findall('.//testsuite')
-          tests = sum(int(suite.attrib.get('tests', '0')) for suite in suites)
+      - name: Check and summarize ROS test results
+        if: ${{ always() }}
+        run: |
+          python3 scripts/ci/report_tests.py \
+            ros2_ws/build/tb4_ouster_autonomy/pytest.xml --label "ROS 2 Humble ($TEST_ARCH)"
 
-          skipped = sum(int(suite.attrib.get('skipped', '0')) for suite in suites)
-          assert tests > 0, 'No tests executed for tb4_ouster_autonomy'
-          assert skipped == 0, f'{skipped} ROS tests were unexpectedly skipped'
-          print(f'pytest.xml reports {tests} tests executed')
-          PY
-
-      - name: Upload Test Results
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Retain ROS test results and build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: test-results
-          path: ros2_ws/build/tb4_ouster_autonomy/pytest.xml
-          if-no-files-found: ignore
+          name: ros-humble-results-${{ matrix.arch }}
+          path: |
+            test-results/
+            ros2_ws/build/tb4_ouster_autonomy/pytest.xml
+            ros2_ws/log/
+          retention-days: 14
+          if-no-files-found: warn
+
+  ci:
+    name: CI required
+    if: ${{ always() }}
+    needs: [quality, build-and-test]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    env:
+      QUALITY_RESULT: ${{ needs.quality.result }}
+      ROS_RESULT: ${{ needs.build-and-test.result }}
+    steps:
+      - name: Require every job to succeed
+        run: |
+          printf 'Quality: %s\nROS matrix: %s\n' "$QUALITY_RESULT" "$ROS_RESULT"
+          test "$QUALITY_RESULT" = success
+          test "$ROS_RESULT" = success
