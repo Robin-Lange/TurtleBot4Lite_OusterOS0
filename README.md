@@ -24,6 +24,7 @@ flowchart TD
 | `safety_authority_gate.py` | ROS subscriptions replace components; a timer runs the safety system and publishes its decision |
 | `cloud_filter.py` | Reads PointCloud2, transforms at acquisition time into `base_link`, then calls the cropping system |
 | `mapping.py` | Frontier extraction and map serialization without ROS dependencies |
+| `visibility.py` / `visibility_monitor.py` | Pure scan-edge observations and an optional passive ROS/RViz adapter |
 | `autonomous_explorer.py` | ROS action lifecycle, mission sequencing, and map checkpoints |
 | `bringup.py` | Shared Nav2 component composition for mapping and localization |
 
@@ -112,6 +113,29 @@ ros2 service call /safety/resume std_srvs/srv/Trigger '{}'
 
 The scripts stop their own launch process group. They do not kill unrelated ROS processes or publish around the gate.
 
+## Optional visibility observations
+
+With `/scan` already running, start the passive monitor separately:
+
+```bash
+ros2 launch tb4_ouster_autonomy visibility.launch.py
+ros2 topic echo /visibility/diagnostics
+```
+
+In RViz, add a **Marker** display for `/visibility/edges` and use a fixed frame connected to the scan frame. Orange points mark the nearer finite return at a nearby range discontinuity: a **candidate occlusion boundary**, not an obstacle prediction or a proven hidden region. `DiagnosticStatus.OK` means only that a full-circle scan with enough finite returns was processed without detected edges; it never means the route is safe. Missing/infinite/out-of-range returns remain unknown. Malformed, stale, future-dated, or unstamped scans clear the points. Each point set keeps the scan's original frame and first-ray timestamp; it is not motion-deskewed.
+
+The defaults look for a range jump of at least 0.75 m, with the near return within 6 m and adjacent beams no more than 0.05 rad apart. The finite-return warning threshold is 50%, and the acquisition/receipt timeout is 0.5 s. These are diagnostic heuristics, not calibrated safety parameters. Full-circle seams and either scan direction are supported; partial fields of view are reported explicitly. Slanted surfaces, thin objects, and noise can create false positives; missing returns and unobserved/overhanging objects can hide real boundaries.
+
+For parameter overrides, run the node directly, for example:
+
+```bash
+ros2 run tb4_ouster_autonomy visibility_monitor --ros-args -p range_jump_m:=1.0 -p scan_topic:=/scan
+```
+
+For recorded-data inspection, launch with `use_sim_time:=true` and replay the scan plus TF and `/clock`. Diagnostic output is rate-limited to 5 Hz and only the newest received scan is processed; this is not an exhaustive bag evaluator. Record `/scan`, `/tf`, `/tf_static`, `/odom`, `/visibility/diagnostics`, and `/visibility/edges` for later comparisons.
+
+This module has no motion authority and is not included in normal bringup. Its purpose is to inspect real visibility data before considering occlusion-aware control. No QP solver, learned predictor, or extra middleware is added. A future controller needs conservative hidden-region construction, measured braking/latency bounds, and matched comparisons against the existing stack and a simple visibility-based slowdown.
+
 ## Verification
 
 Pure systems and configuration tests run without ROS:
@@ -136,3 +160,8 @@ Tests use domain 88 and localhost-only discovery. CI runs on integration-branch 
 ## Offboard compute and Zenoh
 
 Fast DDS remains the Create 3 transport. A native Zenoh process cannot replace the embedded DDS endpoint by changing an environment variable. A future offboard Zenoh bridge should expose a small allowlist of telemetry and high-level requests, keep all local safety checks, and be benchmarked against the current link before adoption. See [offboard networking](docs/JETSON_AGX_ORIN_SETUP.md). No VLA controller or `/vla/cmd_vel` watchdog is implemented in this branch.
+
+## References and attribution
+
+- Taekyung Kim, Hun Kuk Park, Renya Wada, Nikolay Atanasov, Shumon Koga, and Dimitra Panagou (2026), **OcclusionCBF: Backup Control Barrier Functions for Safe Navigation Among Hidden Dynamic Obstacles**. [Paper](https://arxiv.org/abs/2609.06342), [project](https://www.taekyung.me/occlusion-cbf), [source repository](https://github.com/tkkim-robot/occlusion-cbf/tree/1c64a22621554280c45aae54afcb404c90d0d4a6). This work motivated inspecting visibility separately from observed obstacles. The passive scan-edge heuristic here was independently implemented; no upstream source code is copied or vendored. It does not implement OcclusionCBF's reachable occupancy, backup certificates, QP, or theoretical guarantees.
+- ROS 2 Humble [LaserScan message contract](https://github.com/ros2/common_interfaces/blob/humble/sensor_msgs/msg/LaserScan.msg): scan-frame bearings, first-ray acquisition stamp, and valid range limits.

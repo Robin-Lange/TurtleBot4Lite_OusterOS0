@@ -28,7 +28,7 @@ The workflow writes test counts to the Actions job summary and retains artifacts
 - `pure-test-results`: pure-test JUnit XML.
 - `ros-humble-results-amd64` and `ros-humble-results-arm64`: JUnit XML, apt/rosdep logs, colcon logs, and installed package/architecture information.
 
-`report_tests.py` fails on missing or malformed reports, zero executed tests, test failures, errors, or skips. Pure CI selects the three ROS-independent test modules explicitly; ROS CI collects the entire package and requires zero skipped tests. Artifacts and summaries are attempted even after a failed build or test step. Uploading artifacts does not turn a failed test into a passing check.
+`report_tests.py` fails on missing or malformed reports, zero executed tests, test failures, errors, or skips. Pure CI selects ROS-independent test modules explicitly, including scan visibility geometry and freshness regressions; ROS CI collects the entire package and requires zero skipped tests. The passive visibility adapter tests use actual Humble messages and sensor-data QoS, verify acquisition-frame/stamp preservation, and check that invalid or stale scans clear previously displayed edges. Artifacts and summaries are attempted even after a failed build or test step. Uploading artifacts does not turn a failed test into a passing check.
 
 ## Dependency and token handling
 
