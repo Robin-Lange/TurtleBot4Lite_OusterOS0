@@ -2,6 +2,8 @@
 
 from collections import deque
 import math
+import json
+import tempfile
 import os
 from typing import List, Tuple
 
@@ -59,13 +61,10 @@ def save_occupancy_grid_to_files(grid, map_prefix: str) -> Tuple[str, str]:
             else:
                 pixel_bytes[dst_offset + col] = 205
 
-    with open(pgm_path, "wb") as f:
-        header = f"P5\n{width} {height}\n255\n".encode("ascii")
-        f.write(header)
-        f.write(pixel_bytes)
+    header = f"P5\n{width} {height}\n255\n".encode("ascii")
 
     yaml_content = (
-        f"image: {pgm_basename!r}\n"
+        f"image: {json.dumps(pgm_basename)}\n"
         f"mode: trinary\n"
         f"resolution: {resolution:.12g}\n"
         f"origin: [{origin_x:.12g}, {origin_y:.12g}, {origin_yaw:.12g}]\n"
@@ -73,8 +72,21 @@ def save_occupancy_grid_to_files(grid, map_prefix: str) -> Tuple[str, str]:
         f"occupied_thresh: 0.65\n"
         f"free_thresh: 0.25\n"
     )
-    with open(yaml_path, "w", encoding="utf-8") as f:
-        f.write(yaml_content)
+    staged = []
+    try:
+        # Stage complete files first. Each replacement is atomic; the pair is not a transaction.
+        for path, payload in ((pgm_path, header + pixel_bytes), (yaml_path, yaml_content.encode('utf-8'))):
+            with tempfile.NamedTemporaryFile(dir=parent_dir, delete=False) as f:
+                staged.append((f.name, path))
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+        for temporary, path in staged:
+            os.replace(temporary, path)
+    finally:
+        for temporary, _ in staged:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
 
     return pgm_path, yaml_path
 

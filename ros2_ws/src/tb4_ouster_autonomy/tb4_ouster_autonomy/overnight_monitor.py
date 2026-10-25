@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Overnight stationary test monitor for Create 3 + Ouster OS0.
+"""Overnight stationary test monitor for Create 3 + RPLIDAR S2 + RealSense D455.
 
-Continuously logs system health, battery, odometry drift, Ouster LiDAR rates,
+Continuously logs system health, battery, odometry drift, camera and planar LiDAR rates,
 and temperature every 60 seconds without publishing any motion commands.
 Appends records to overnight_test.log and updates overnight_summary.json.
 """
@@ -12,7 +12,6 @@ import os
 import shutil
 import time
 from datetime import datetime, timezone
-from urllib.request import urlopen
 
 import rclpy
 from rclpy.node import Node
@@ -73,19 +72,6 @@ def get_jetson_metrics():
     }
 
 
-def get_ouster_http_status(sensor_ip="169.254.97.211"):
-    try:
-        with urlopen(f"http://{sensor_ip}/api/v1/sensor/metadata/sensor_info", timeout=2) as resp:
-            info = json.load(resp)
-        return {
-            "status": info.get("status"),
-            "prod_line": info.get("prod_line"),
-            "firmware": info.get("image_rev", "")[:40],
-        }
-    except Exception as exc:
-        return {"error": str(exc)}
-
-
 class OvernightMonitor(Node):
     def __init__(self, log_path, summary_path):
         super().__init__("overnight_stationary_monitor")
@@ -111,8 +97,10 @@ class OvernightMonitor(Node):
 
         # Subscriptions
         qos_best_effort = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-        self.create_subscription(PointCloud2, "/ouster/points", self.cb_points, qos_profile_sensor_data)
-        self.create_subscription(LaserScan, "/ouster/scan", self.cb_scan, qos_profile_sensor_data)
+        self.create_subscription(
+            PointCloud2, "/camera/camera/depth/color/points", self.cb_points, qos_profile_sensor_data
+        )
+        self.create_subscription(LaserScan, "/scan", self.cb_scan, qos_profile_sensor_data)
         self.create_subscription(Odometry, "/odom", self.cb_odom, qos_profile_sensor_data)
         self.create_subscription(TFMessage, "/tf", self.cb_tf, qos_profile_sensor_data)
         self.create_subscription(BatteryState, "/battery_state", self.cb_battery, qos_best_effort)
@@ -136,7 +124,7 @@ class OvernightMonitor(Node):
         self.is_docked = msg.is_docked
 
     def cb_hazard(self, msg: HazardDetectionVector):
-        self.active_hazards = [d.type for d in msg.detections if d.type in (1, 2, 3)]
+        self.active_hazards = [d.type for d in msg.detections if d.type in (1, 2, 3, 4)]
 
     def cb_battery(self, msg: BatteryState):
         self.last_battery = {
@@ -183,15 +171,14 @@ class OvernightMonitor(Node):
 
         # Host and sensor metrics
         host_metrics = get_jetson_metrics()
-        ouster_metrics = get_ouster_http_status()
 
         record = {
             "sample": self.sample_count,
             "timestamp": now_utc,
             "elapsed_hours": round(elapsed_s / 3600.0, 2),
             "rates_hz": {
-                "ouster_points": rate_points,
-                "ouster_scan": rate_scan,
+                "d455_points": rate_points,
+                "rplidar_scan": rate_scan,
                 "base_odom": rate_odom,
             },
             "battery": self.last_battery,
@@ -202,7 +189,6 @@ class OvernightMonitor(Node):
                 "max_yaw_deg": round(self.max_drift_yaw_deg, 2),
             },
             "host": host_metrics,
-            "ouster_sensor": ouster_metrics,
         }
 
         # Append to log
@@ -225,7 +211,6 @@ class OvernightMonitor(Node):
                 "max_drift_xy_m": round(self.max_drift_xy_m, 4),
                 "max_drift_yaw_deg": round(self.max_drift_yaw_deg, 2),
                 "host_summary": host_metrics,
-                "ouster_status": ouster_metrics.get("status", "UNKNOWN"),
             }
             with open(self.summary_path, "w") as f:
                 json.dump(summary, f, indent=2)
@@ -234,7 +219,7 @@ class OvernightMonitor(Node):
 
         self.get_logger().info(
             f"[Overnight Sample {self.sample_count}] "
-            f"Ouster pts: {rate_points}Hz, scan: {rate_scan}Hz, odom: {rate_odom}Hz | "
+            f"D455 pts: {rate_points}Hz, scan: {rate_scan}Hz, odom: {rate_odom}Hz | "
             f"Bat: {self.last_battery.get('percentage', '?')}% | "
             f"CPU Load: {host_metrics['load_1m']}"
         )

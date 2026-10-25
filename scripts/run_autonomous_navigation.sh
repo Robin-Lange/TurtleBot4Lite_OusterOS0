@@ -17,6 +17,13 @@ cleanup() {
             sleep 0.1
         done
         kill -TERM -- "-$LAUNCH_PID" 2>/dev/null || true
+        for _ in {1..30}; do
+            kill -0 "$LAUNCH_PID" 2>/dev/null || break
+            sleep 0.1
+        done
+        if kill -0 "$LAUNCH_PID" 2>/dev/null; then
+            kill -KILL -- "-$LAUNCH_PID" 2>/dev/null || true
+        fi
         wait "$LAUNCH_PID" 2>/dev/null || true
     fi
 }

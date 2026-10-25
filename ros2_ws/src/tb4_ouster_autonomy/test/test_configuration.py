@@ -63,3 +63,9 @@ def test_profiles_and_yaml_are_parseable():
         ET.parse(path)
     for path in (PACKAGE/'config').glob('*.yaml'):
         assert isinstance(yaml.safe_load(path.read_text()), dict)
+
+
+def test_current_sensor_configs_have_no_ouster_topics():
+    for directory, pattern in [('config', '*.yaml'), ('rviz', '*.rviz'), ('tb4_ouster_autonomy', '*.py')]:
+        for path in (PACKAGE/directory).glob(pattern):
+            assert '/ouster/' not in path.read_text(), path

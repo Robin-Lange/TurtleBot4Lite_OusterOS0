@@ -60,6 +60,8 @@ class CloudFilter(Node):
                 points = np.asarray(list(raw), dtype=np.float32).reshape(-1, 3)
             if points.size and not np.isfinite(points).all(axis=1).any():
                 return  # Invalid depth is not evidence of an empty scene.
+            if points.size and not (np.linalg.norm(points, axis=1) > 1e-9).any():
+                return  # An all-zero depth array is invalid, not a clear scene.
             if msg.header.frame_id != self.target_frame:
                 transform = self.buffer.lookup_transform(
                     self.target_frame, msg.header.frame_id, Time.from_msg(msg.header.stamp),

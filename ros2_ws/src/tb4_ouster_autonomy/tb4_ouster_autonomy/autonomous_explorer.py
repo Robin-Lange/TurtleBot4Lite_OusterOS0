@@ -6,7 +6,7 @@ Features:
 - Performs an initial 360-degree scan spin to seed SLAM Toolbox and 3D Voxel costmaps.
 - Extracts frontier clusters (boundaries between known free space and unknown space) from /map.
 - Scores frontiers by cluster size and Euclidean distance, filtering out obstacles and blacklisted goals.
-- Sends NavigateToPose action goals to Nav2 (with reactive LiDAR/bumper safety fallback).
+- Sends NavigateToPose goals and bounded motion proposals through local safety checks.
 - Continuously checkpoints the map every N seconds and saves `<map_prefix>.pgm`
   and `<map_prefix>.yaml` on exploration completion OR when the user aborts via Ctrl+C / /explore/stop.
 """
@@ -43,7 +43,7 @@ class AutonomousExplorer(Node):
         super().__init__("autonomous_explorer")
 
         default_map_prefix = os.path.expanduser(
-            "~/TurtleBot4Lite_OusterOS0/arena_map"
+            "~/maps/arena_map"
         )
         self.declare_parameter("map_output_prefix", default_map_prefix)
         self.declare_parameter("auto_undock", False)
@@ -52,7 +52,7 @@ class AutonomousExplorer(Node):
         self.declare_parameter("min_frontier_size", 6)
         self.declare_parameter("obstacle_clearance_m", 0.25)
         self.declare_parameter("blacklist_radius_m", 0.45)
-        self.declare_parameter("max_explore_Duration_s", 900.0)
+        self.declare_parameter("max_explore_duration_s", 900.0)
         self.declare_parameter("initial_spin_duration_s", 8.0)
         self.declare_parameter("reactive_fallback_enabled", False)
 
@@ -63,7 +63,7 @@ class AutonomousExplorer(Node):
         self.min_frontier_size = int(self.get_parameter("min_frontier_size").value)
         self.obstacle_clearance_m = float(self.get_parameter("obstacle_clearance_m").value)
         self.blacklist_radius_m = float(self.get_parameter("blacklist_radius_m").value)
-        self.max_explore_duration_s = float(self.get_parameter("max_explore_Duration_s").value)
+        self.max_explore_duration_s = float(self.get_parameter("max_explore_duration_s").value)
         self.initial_spin_duration_s = float(self.get_parameter("initial_spin_duration_s").value)
         self.reactive_fallback_enabled = bool(
             self.get_parameter("reactive_fallback_enabled").value
@@ -451,6 +451,7 @@ class AutonomousExplorer(Node):
 
     def control_step(self):
         if self.exploration_finished:
+            self.pub_cmd_vel.publish(Twist())
             return
 
         now = time.monotonic()

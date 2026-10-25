@@ -46,3 +46,11 @@ def test_all_invalid_depth_is_not_an_empty_scene(cloud_filter):
     header.stamp = cloud_filter.get_clock().now().to_msg()
     cloud_filter.cloud_callback(pc2.create_cloud_xyz32(header, [[0, 0, float('nan')]]))
     assert cloud_filter.last_published_time_s < time.monotonic() - 100
+
+
+def test_all_zero_depth_is_not_a_clear_scene(cloud_filter):
+    header = Header()
+    header.frame_id = 'base_link'
+    header.stamp = cloud_filter.get_clock().now().to_msg()
+    cloud_filter.cloud_callback(pc2.create_cloud_xyz32(header, [[0, 0, 0]]))
+    assert cloud_filter.last_published_time_s < time.monotonic() - 100

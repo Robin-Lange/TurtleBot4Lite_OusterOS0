@@ -104,3 +104,22 @@ def test_rotated_map_origin_rotates_frontier_coordinates():
     for (x, y, _), (rx, ry, _) in zip(original, rotated):
         assert abs(rx - (-1 - (y + 1))) < 1e-6
         assert abs(ry - (-1 + (x + 1))) < 1e-6
+
+
+def test_malformed_map_does_not_replace_existing_output(tmp_path):
+    import pytest
+    prefix = str(tmp_path/'map')
+    pgm = tmp_path/'map.pgm'
+    pgm.write_bytes(b'previous map')
+    grid = _make_grid(3, 3, [0], 0.05)
+    with pytest.raises(ValueError):
+        save_occupancy_grid_to_files(grid, prefix)
+    assert pgm.read_bytes() == b'previous map'
+
+
+def test_quoted_map_path_is_valid_yaml(tmp_path):
+    prefix = str(tmp_path/"robot's map")
+    grid = _make_grid(3, 3, [0]*9, 0.05)
+    _, path = save_occupancy_grid_to_files(grid, prefix)
+    with open(path) as stream:
+        assert yaml.safe_load(stream)['image'] == "robot's map.pgm"
