@@ -13,7 +13,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.actions import Node
 
 
@@ -74,7 +75,7 @@ def generate_launch_description():
         parameters=[{
             'channel_type': 'serial',
             'serial_port': LaunchConfiguration('rplidar_port'),
-            'serial_baudrate': LaunchConfiguration('rplidar_baudrate'),
+            'serial_baudrate': ParameterValue(LaunchConfiguration('rplidar_baudrate'), value_type=int),
             'frame_id': LaunchConfiguration('rplidar_frame'),
             'inverted': False,
             'angle_compensate': True,
@@ -94,7 +95,6 @@ def generate_launch_description():
             'camera_name': 'camera',
             'publish_tf': True,
             'pointcloud.enable': LaunchConfiguration('enable_pointcloud'),
-            'pointcloud__neon_.enable': LaunchConfiguration('enable_pointcloud'),
             'rgb_camera.color_profile': '640x480x30',
             'depth_module.depth_profile': '640x480x30',
             'enable_infra1': False,
@@ -117,22 +117,13 @@ def generate_launch_description():
         parameters=[{
             'input_topic': '/camera/camera/depth/color/points',
             'output_topic': '/camera/cloud_filtered',
-            'ground_topic': '/camera/ground_points',
-            'publish_ground_cloud': False,
+            'target_frame': 'base_link',
             'target_rate_hz': 15.0,
-            'min_range': 0.35,
-            'max_range': 6.0,
-            'min_height': 0.04,
-            'max_height': 1.5,
-            'enable_ransac': False,
-            'self_box_min_x': -0.10,
-            'self_box_max_x': 0.25,
-            'self_box_min_y': -0.20,
-            'self_box_max_y': 0.20,
-            'self_box_min_z': -0.20,
-            'self_box_max_z': 0.20,
         }],
-        condition=IfCondition(LaunchConfiguration('enable_pointcloud')),
+        condition=IfCondition(PythonExpression([
+            "'", LaunchConfiguration('start_camera'), "'.lower() == 'true' and '",
+            LaunchConfiguration('enable_pointcloud'), "'.lower() == 'true'",
+        ])),
     )
 
     return LaunchDescription([
@@ -148,4 +139,3 @@ def generate_launch_description():
         realsense_node,
         cloud_filter_node,
     ])
-

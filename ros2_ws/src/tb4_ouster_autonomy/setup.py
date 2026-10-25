@@ -13,14 +13,13 @@ setup(
         ("share/" + package_name + "/launch", glob("launch/*.launch.py")),
         ("share/" + package_name + "/config", glob("config/*.yaml")),
         ("share/" + package_name + "/rviz", glob("rviz/*.rviz")),
-        ("share/" + package_name + "/maps", glob("../../../arena_map.*")),
     ],
     install_requires=["setuptools"],
     tests_require=["pytest"],
     zip_safe=True,
     maintainer="RobinLange",
     maintainer_email="rl11732@georgiasouthern.edu",
-    description="Mapping, navigation, perception, and diagnostics for a Create 3 with Ouster OS0.",
+    description="Mapping, navigation, perception, and diagnostics for a Create 3 with RPLIDAR S2 and RealSense D455.",
     license="Unspecified",
     entry_points={
         "console_scripts": [

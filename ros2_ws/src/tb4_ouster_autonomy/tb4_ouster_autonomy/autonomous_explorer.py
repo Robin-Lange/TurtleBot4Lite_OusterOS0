@@ -7,11 +7,10 @@ Features:
 - Extracts frontier clusters (boundaries between known free space and unknown space) from /map.
 - Scores frontiers by cluster size and Euclidean distance, filtering out obstacles and blacklisted goals.
 - Sends NavigateToPose action goals to Nav2 (with reactive LiDAR/bumper safety fallback).
-- Continuously checkpoints the map every N seconds and deterministically saves `<map_prefix>.pgm`
+- Continuously checkpoints the map every N seconds and saves `<map_prefix>.pgm`
   and `<map_prefix>.yaml` on exploration completion OR when the user aborts via Ctrl+C / /explore/stop.
 """
 
-from collections import deque
 import math
 import os
 import signal
@@ -30,194 +29,11 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import LaserScan
 from std_srvs.srv import Trigger
+from std_msgs.msg import String
+from tf2_ros import Buffer, TransformException, TransformListener
+from rclpy.time import Time
 
-
-def quaternion_to_yaw(q) -> float:
-    """Convert geometry_msgs/Quaternion to yaw (radians)."""
-    siny_cosp = 2.0 * (q.w * q.z + q.x * q.y)
-    cosy_cosp = 1.0 - 2.0 * (q.y * q.y + q.z * q.z)
-    return math.atan2(siny_cosp, cosy_cosp)
-
-
-def yaw_to_quaternion(yaw: float) -> Tuple[float, float, float, float]:
-    """Convert yaw (radians) to (x, y, z, w) quaternion tuple."""
-    return (0.0, 0.0, math.sin(yaw * 0.5), math.cos(yaw * 0.5))
-
-
-def save_occupancy_grid_to_files(grid: OccupancyGrid, map_prefix: str) -> Tuple[str, str]:
-    """Save OccupancyGrid directly to standard Nav2 trinary .pgm and .yaml files.
-
-    Deterministic, zero-dependency, and instantaneous (<5ms) so Ctrl+C signal
-    handlers always persist the latest SLAM map even during node teardown.
-    """
-    width = int(grid.info.width)
-    height = int(grid.info.height)
-    resolution = float(grid.info.resolution)
-    origin_x = float(grid.info.origin.position.x)
-    origin_y = float(grid.info.origin.position.y)
-    origin_yaw = quaternion_to_yaw(grid.info.origin.orientation)
-
-    parent_dir = os.path.dirname(os.path.abspath(map_prefix))
-    if parent_dir:
-        os.makedirs(parent_dir, exist_ok=True)
-
-    pgm_path = f"{map_prefix}.pgm"
-    yaml_path = f"{map_prefix}.yaml"
-    pgm_basename = os.path.basename(pgm_path)
-
-    data = grid.data
-    pixel_bytes = bytearray(width * height)
-
-    # OccupancyGrid row 0 is bottom (origin_y); PGM row 0 is top
-    for row in range(height):
-        src_row = height - 1 - row
-        src_offset = src_row * width
-        dst_offset = row * width
-        for col in range(width):
-            val = data[src_offset + col]
-            if val < 0:
-                pixel_bytes[dst_offset + col] = 205  # Unknown (gray)
-            elif val >= 65:
-                pixel_bytes[dst_offset + col] = 0    # Occupied (black)
-            elif val <= 25:
-                pixel_bytes[dst_offset + col] = 254  # Free (white)
-            else:
-                pixel_bytes[dst_offset + col] = 205
-
-    with open(pgm_path, "wb") as f:
-        header = f"P5\n{width} {height}\n255\n".encode("ascii")
-        f.write(header)
-        f.write(pixel_bytes)
-
-    yaml_content = (
-        f"image: {pgm_basename}\n"
-        f"mode: trinary\n"
-        f"resolution: {resolution:.4f}\n"
-        f"origin: [{origin_x:.3f}, {origin_y:.3f}, {origin_yaw:.3f}]\n"
-        f"negate: 0\n"
-        f"occupied_thresh: 0.65\n"
-        f"free_thresh: 0.25\n"
-    )
-    with open(yaml_path, "w", encoding="utf-8") as f:
-        f.write(yaml_content)
-
-    # Also sync to install share directory if saving to the repo root arena_map
-    install_maps_dir = os.path.join(
-        parent_dir,
-        "ros2_ws",
-        "install",
-        "tb4_ouster_autonomy",
-        "share",
-        "tb4_ouster_autonomy",
-        "maps",
-    )
-    if os.path.isdir(install_maps_dir) and os.path.basename(map_prefix) == "arena_map":
-        try:
-            with open(os.path.join(install_maps_dir, pgm_basename), "wb") as f_inst:
-                f_inst.write(header)
-                f_inst.write(pixel_bytes)
-            with open(
-                os.path.join(install_maps_dir, "arena_map.yaml"), "w", encoding="utf-8"
-            ) as f_yaml_inst:
-                f_yaml_inst.write(yaml_content)
-        except OSError:
-            pass
-
-    return pgm_path, yaml_path
-
-
-def find_frontier_clusters(
-    grid: OccupancyGrid,
-    min_cluster_size: int = 6,
-    clearance_cells: int = 5,
-) -> List[Tuple[float, float, int]]:
-    """Extract frontier cluster centroids (x_m, y_m, cell_count) from an OccupancyGrid.
-
-    A frontier cell is a known free cell (0 <= v <= 25) that has at least one
-    4-connected unknown neighbor (v == -1) and no occupied cell (v >= 50)
-    within `clearance_cells` radius.
-    """
-    width = int(grid.info.width)
-    height = int(grid.info.height)
-    res = float(grid.info.resolution)
-    ox = float(grid.info.origin.position.x)
-    oy = float(grid.info.origin.position.y)
-    data = grid.data
-
-    if width <= 2 or height <= 2 or len(data) < width * height:
-        return []
-
-    # 1. Identify candidate frontier cells
-    is_frontier = bytearray(width * height)
-    for r in range(1, height - 1):
-        row_off = r * width
-        for c in range(1, width - 1):
-            idx = row_off + c
-            val = data[idx]
-            if 0 <= val <= 25:
-                # Check 4-neighbors for unknown (-1)
-                if (
-                    data[idx - 1] == -1
-                    or data[idx + 1] == -1
-                    or data[idx - width] == -1
-                    or data[idx + width] == -1
-                ):
-                    is_frontier[idx] = 1
-
-    # 2. Filter out frontier cells too close to obstacles
-    if clearance_cells > 0:
-        for r in range(height):
-            row_off = r * width
-            for c in range(width):
-                if data[row_off + c] >= 50:
-                    r_min = max(0, r - clearance_cells)
-                    r_max = min(height - 1, r + clearance_cells)
-                    c_min = max(0, c - clearance_cells)
-                    c_max = min(width - 1, c + clearance_cells)
-                    for nr in range(r_min, r_max + 1):
-                        noff = nr * width
-                        for nc in range(c_min, c_max + 1):
-                            is_frontier[noff + nc] = 0
-
-    # 3. 8-connected BFS clustering
-    visited = bytearray(width * height)
-    clusters: List[Tuple[float, float, int]] = []
-
-    for r in range(1, height - 1):
-        row_off = r * width
-        for c in range(1, width - 1):
-            start_idx = row_off + c
-            if is_frontier[start_idx] and not visited[start_idx]:
-                queue = deque([(r, c)])
-                visited[start_idx] = 1
-                cells = []
-                while queue:
-                    cr, cc = queue.popleft()
-                    cells.append((cr, cc))
-                    for dr in (-1, 0, 1):
-                        for dc in (-1, 0, 1):
-                            if dr == 0 and dc == 0:
-                                continue
-                            nr, nc = cr + dr, cc + dc
-                            if 0 <= nr < height and 0 <= nc < width:
-                                nidx = nr * width + nc
-                                if is_frontier[nidx] and not visited[nidx]:
-                                    visited[nidx] = 1
-                                    queue.append((nr, nc))
-
-                if len(cells) >= min_cluster_size:
-                    # Pick the cluster cell closest to the cluster median (ensures goal lies on a valid free cell)
-                    mean_r = sum(p[0] for p in cells) / len(cells)
-                    mean_c = sum(p[1] for p in cells) / len(cells)
-                    best_r, best_c = min(
-                        cells,
-                        key=lambda p: (p[0] - mean_r) ** 2 + (p[1] - mean_c) ** 2,
-                    )
-                    wx = ox + (best_c + 0.5) * res
-                    wy = oy + (best_r + 0.5) * res
-                    clusters.append((wx, wy, len(cells)))
-
-    return clusters
+from .mapping import find_frontier_clusters, quaternion_to_yaw, save_occupancy_grid_to_files, yaw_to_quaternion
 
 
 class AutonomousExplorer(Node):
@@ -230,7 +46,7 @@ class AutonomousExplorer(Node):
             "~/TurtleBot4Lite_OusterOS0/arena_map"
         )
         self.declare_parameter("map_output_prefix", default_map_prefix)
-        self.declare_parameter("auto_undock", True)
+        self.declare_parameter("auto_undock", False)
         self.declare_parameter("auto_save_interval_s", 20.0)
         self.declare_parameter("goal_timeout_s", 35.0)
         self.declare_parameter("min_frontier_size", 6)
@@ -238,7 +54,7 @@ class AutonomousExplorer(Node):
         self.declare_parameter("blacklist_radius_m", 0.45)
         self.declare_parameter("max_explore_Duration_s", 900.0)
         self.declare_parameter("initial_spin_duration_s", 8.0)
-        self.declare_parameter("reactive_fallback_enabled", True)
+        self.declare_parameter("reactive_fallback_enabled", False)
 
         self.map_output_prefix = str(self.get_parameter("map_output_prefix").value)
         self.auto_undock = bool(self.get_parameter("auto_undock").value)
@@ -281,6 +97,13 @@ class AutonomousExplorer(Node):
         self.blacklist_reset_count: int = 0
         self.nav_goal_active: bool = False
         self.nav_goal_handle = None
+        self.goal_epoch = 0
+        self.cancel_pending = False
+        self.safety_paused = False
+        self.buffer = Buffer()
+        self.tf_listener = TransformListener(self.buffer, self)
+        self.sub_safety = self.create_subscription(String, '/safety/status', self.safety_callback, 1)
+        self.undock_succeeded = False
         self.undock_requested: bool = False
         self.no_frontier_count: int = 0
 
@@ -312,7 +135,7 @@ class AutonomousExplorer(Node):
             qos_profile_sensor_data,
         )
 
-        self.pub_cmd_vel = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.pub_cmd_vel = self.create_publisher(Twist, "/explorer/cmd_vel", 1)
         self.nav_client = ActionClient(self, NavigateToPose, "navigate_to_pose")
         self.undock_client = ActionClient(self, Undock, "/undock")
 
@@ -332,10 +155,28 @@ class AutonomousExplorer(Node):
         self.latest_map = msg
 
     def odom_callback(self, msg: Odometry):
-        self.robot_x = float(msg.pose.pose.position.x)
-        self.robot_y = float(msg.pose.pose.position.y)
-        self.robot_yaw = quaternion_to_yaw(msg.pose.pose.orientation)
         self.odom_received = True
+
+    def update_map_pose(self):
+        try:
+            transform = self.buffer.lookup_transform('map', 'base_link', Time())
+            age = (self.get_clock().now() - Time.from_msg(transform.header.stamp)).nanoseconds * 1e-9
+            if age < -0.1 or age > 1.0:
+                return False
+            self.robot_x = transform.transform.translation.x
+            self.robot_y = transform.transform.translation.y
+            self.robot_yaw = quaternion_to_yaw(transform.transform.rotation)
+            return True
+        except TransformException:
+            return False
+
+    def safety_callback(self, msg):
+        import json
+        status = json.loads(msg.data)
+        paused = status.get('latched_fault', False) or status.get('autonomy_paused', False)
+        if paused and not self.safety_paused:
+            self.stop_robot()
+        self.safety_paused = paused
 
     def dock_callback(self, msg: DockStatus):
         self.is_docked = bool(msg.is_docked)
@@ -373,11 +214,15 @@ class AutonomousExplorer(Node):
 
     def stop_robot(self):
         """Publish zero velocity and cancel any active Nav2 goal."""
+        self.goal_epoch += 1
+        if self.nav_goal_active:
+            self.cancel_pending = True
         if self.nav_goal_handle is not None:
             try:
+                self.cancel_pending = True
                 self.nav_goal_handle.cancel_goal_async()
             except Exception:
-                pass
+                self.cancel_pending = True
             self.nav_goal_handle = None
         self.nav_goal_active = False
         zero = Twist()
@@ -416,8 +261,8 @@ class AutonomousExplorer(Node):
     def handle_stop_service(self, request, response):
         self.get_logger().info("Stop requested via /explore/stop service.")
         self.finish_exploration("user_stop_service")
-        response.success = True
-        response.message = f"Exploration stopped and map saved to {self.map_output_prefix}.yaml"
+        response.success = self.map_saved_on_exit
+        response.message = f"Exploration stopped; map_saved={self.map_saved_on_exit}"
         return response
 
     def finish_exploration(self, reason: str):
@@ -426,10 +271,10 @@ class AutonomousExplorer(Node):
         self.exploration_finished = True
         self.phase = "FINISHED"
         self.stop_robot()
-        self.save_current_map(reason=reason)
-        self.map_saved_on_exit = True
+        self.map_saved_on_exit = self.save_current_map(reason=reason)
         self.get_logger().info(
-            f"Autonomous mapping complete ({reason}). Final map saved at {self.map_output_prefix}.yaml"
+            f"Mapping finished ({reason}); map_saved={self.map_saved_on_exit}, "
+            f"path={self.map_output_prefix}.yaml"
         )
 
     def is_blacklisted(self, x: float, y: float) -> bool:
@@ -495,16 +340,26 @@ class AutonomousExplorer(Node):
         self.goal_sent_time = time.monotonic()
         self.nav_goal_active = True
 
+        self.goal_epoch += 1
+        epoch = self.goal_epoch
         future = self.nav_client.send_goal_async(goal_msg)
-        future.add_done_callback(self._goal_response_callback)
+        future.add_done_callback(lambda result: self._goal_response_callback(result, epoch))
         return True
 
-    def _goal_response_callback(self, future):
+    def _goal_response_callback(self, future, epoch):
         try:
             goal_handle = future.result()
+            if epoch != self.goal_epoch or self.exploration_finished or self.safety_paused:
+                if goal_handle.accepted:
+                    self.cancel_pending = True
+                    goal_handle.cancel_goal_async()
+                    goal_handle.get_result_async().add_done_callback(self._cancelled_result)
+                else:
+                    self.cancel_pending = False
+                return
             if not goal_handle.accepted:
                 self.get_logger().warn(
-                    "Nav2 bt_navigator not ready yet (goal rejected); using reactive LiDAR exploration for 3s."
+                    "Nav2 bt_navigator not ready yet (goal rejected); waiting before retry."
                 )
                 self.last_nav_reject_time = time.monotonic()
                 self.nav_goal_active = False
@@ -514,13 +369,19 @@ class AutonomousExplorer(Node):
                 return
             self.nav_goal_handle = goal_handle
             result_future = goal_handle.get_result_async()
-            result_future.add_done_callback(self._goal_result_callback)
+            result_future.add_done_callback(lambda result: self._goal_result_callback(result, epoch))
         except Exception as exc:
             self.get_logger().warn(f"Nav2 goal response error: {exc}")
             self.last_nav_reject_time = time.monotonic()
             self.nav_goal_active = False
 
-    def _goal_result_callback(self, future):
+    def _cancelled_result(self, future):
+        self.cancel_pending = False
+
+    def _goal_result_callback(self, future, epoch):
+        if epoch != self.goal_epoch:
+            self.cancel_pending = False
+            return
         try:
             status = future.result().status
             if status == GoalStatus.STATUS_SUCCEEDED:
@@ -540,19 +401,9 @@ class AutonomousExplorer(Node):
     def reactive_explore_step(self):
         """Safe LiDAR-guided reactive exploration step when Nav2 is warming up or between goals."""
         twist = Twist()
-        now = time.monotonic()
-
-        # If bumper recently triggered, back up gently and turn
-        if self.bumper_hit and (now - self.last_bumper_time) < 2.0:
-            if (now - self.last_bumper_time) < 0.8:
-                twist.linear.x = -0.06
-                twist.angular.z = 0.0
-            else:
-                twist.linear.x = 0.0
-                twist.angular.z = 0.40 if self.min_left_scan_m >= self.min_right_scan_m else -0.40
+        if self.bumper_hit:
             self.pub_cmd_vel.publish(twist)
             return
-        self.bumper_hit = False
 
         if self.min_front_scan_m < 0.45:
             # Obstacle ahead: rotate toward more open side
@@ -567,11 +418,33 @@ class AutonomousExplorer(Node):
 
         self.pub_cmd_vel.publish(twist)
 
+    def undock_response(self, future):
+        try:
+            handle = future.result()
+            if not handle.accepted:
+                self.finish_exploration('undock_rejected')
+                return
+            handle.get_result_async().add_done_callback(self.undock_result)
+        except Exception as exc:
+            self.get_logger().error(f'Undock failed: {exc}')
+            self.finish_exploration('undock_error')
+
+    def undock_result(self, future):
+        try:
+            self.undock_succeeded = future.result().status == GoalStatus.STATUS_SUCCEEDED
+        except Exception:
+            self.undock_succeeded = False
+        if not self.undock_succeeded:
+            self.finish_exploration('undock_failed')
+
     def control_step(self):
         if self.exploration_finished:
             return
 
         now = time.monotonic()
+        if self.safety_paused or self.cancel_pending:
+            self.pub_cmd_vel.publish(Twist())
+            return
 
         # Periodic map checkpoint save
         if (
@@ -587,15 +460,15 @@ class AutonomousExplorer(Node):
 
         # Phase 1: Wait for sensors (/scan and /odom, plus /dock_status if auto_undock enabled)
         if self.phase == "WAIT_SENSORS":
-            dock_ready = (not self.auto_undock) or (self.is_docked is not None) or ((now - self.phase_start_time) > 3.5)
+            dock_ready = self.is_docked is not None
             if self.scan_received and self.odom_received and dock_ready:
-                if self.auto_undock and (self.is_docked is True or self.is_docked is None):
+                if self.auto_undock and self.is_docked is True:
                     self.phase = "UNDOCKING"
                     self.phase_start_time = now
                     self.get_logger().info(
                         f"Sensors online (is_docked={self.is_docked}). Initiating automatic undock..."
                     )
-                else:
+                elif self.is_docked is False:
                     self.phase = "INITIAL_SPIN"
                     self.phase_start_time = now
                     self.get_logger().info(
@@ -603,13 +476,13 @@ class AutonomousExplorer(Node):
                     )
             elif int((now - self.phase_start_time) * 4) % 12 == 0:
                 self.get_logger().info(
-                    f"Waiting for sensors: scan={self.scan_received}, odom={self.odom_received}, is_docked={self.is_docked}"
+                    f"Waiting: scan={self.scan_received}, odom={self.odom_received}, docked={self.is_docked}"
                 )
             return
 
         # Phase 2: Auto-Undock if starting on dock
         if self.phase == "UNDOCKING":
-            if self.is_docked is False:
+            if self.is_docked is False and self.undock_succeeded:
                 self.get_logger().info("Undock complete! Transitioning to initial SLAM spin.")
                 self.phase = "INITIAL_SPIN"
                 self.phase_start_time = now
@@ -617,18 +490,13 @@ class AutonomousExplorer(Node):
 
             if not self.undock_requested:
                 if self.undock_client.wait_for_server(timeout_sec=1.0):
-                    self.undock_client.send_goal_async(Undock.Goal())
+                    self.undock_client.send_goal_async(Undock.Goal()).add_done_callback(self.undock_response)
                     self.undock_requested = True
                     self.get_logger().info("Sent /undock action goal to Create 3.")
                 elif (now - self.phase_start_time) > 5.0:
-                    self.get_logger().warn(
-                        "/undock action server unavailable; proceeding to INITIAL_SPIN."
-                    )
-                    self.phase = "INITIAL_SPIN"
-                    self.phase_start_time = now
-            elif (now - self.phase_start_time) > 20.0:
-                self.phase = "INITIAL_SPIN"
-                self.phase_start_time = now
+                    self.finish_exploration('undock_server_unavailable')
+            if (now - self.phase_start_time) > 20.0:
+                self.finish_exploration('undock_timeout')
             return
 
         # Phase 3: Initial spin to populate SLAM map around starting pose
@@ -648,7 +516,7 @@ class AutonomousExplorer(Node):
 
         # Phase 4: Active Frontier Exploration
         if self.phase == "EXPLORING":
-            if self.latest_map is None:
+            if self.latest_map is None or not self.update_map_pose():
                 return
 
             # Check active Nav2 goal timeout or proximity completion
@@ -661,10 +529,12 @@ class AutonomousExplorer(Node):
                     self.get_logger().info("Within 0.30m of frontier goal; advancing to next frontier.")
                     self.blacklisted_goals.append(self.current_goal)
                     self.stop_robot()
+                    return
                 elif (now - self.goal_sent_time) > self.goal_timeout_s:
                     self.get_logger().info("Frontier goal timed out; blacklisting and replanning.")
                     self.blacklisted_goals.append(self.current_goal)
                     self.stop_robot()
+                    return
                 else:
                     return
 
@@ -685,7 +555,7 @@ class AutonomousExplorer(Node):
                 if self.blacklisted_goals and self.blacklist_reset_count < 2:
                     self.blacklist_reset_count += 1
                     self.get_logger().info(
-                        f"Clearing frontier blacklist (pass {self.blacklist_reset_count}/2) to re-check remaining frontiers."
+                        f"Clearing frontier blacklist (pass {self.blacklist_reset_count}/2)."
                     )
                     self.blacklisted_goals.clear()
                     if self.reactive_fallback_enabled:

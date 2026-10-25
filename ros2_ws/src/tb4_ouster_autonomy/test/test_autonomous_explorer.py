@@ -3,11 +3,22 @@
 import os
 import tempfile
 
-from nav_msgs.msg import OccupancyGrid
-from tb4_ouster_autonomy.autonomous_explorer import (
+from types import SimpleNamespace
+import math
+import yaml
+
+
+from tb4_ouster_autonomy.mapping import (
     find_frontier_clusters,
     save_occupancy_grid_to_files,
 )
+
+
+def OccupancyGrid():
+    return SimpleNamespace(info=SimpleNamespace(
+        origin=SimpleNamespace(position=SimpleNamespace(x=0., y=0.),
+                               orientation=SimpleNamespace(x=0., y=0., z=0., w=1.))
+    ), data=[])
 
 
 def _make_grid(width: int, height: int, data: list, resolution: float = 0.05) -> OccupancyGrid:
@@ -70,11 +81,26 @@ def test_save_occupancy_grid_to_files_writes_valid_pgm_and_yaml():
 
         with open(yaml_path, "r", encoding="utf-8") as yf:
             yaml_text = yf.read()
-        assert "image: test_arena.pgm" in yaml_text
-        assert "resolution: 0.0500" in yaml_text
+        assert yaml.safe_load(yaml_text)["image"] == "test_arena.pgm"
+        assert yaml.safe_load(yaml_text)["resolution"] == 0.05
 
         with open(pgm_path, "rb") as pf:
             raw = pf.read()
         assert raw.startswith(b"P5\n10 8\n255\n")
         pixel_payload = raw.split(b"255\n", 1)[1]
         assert len(pixel_payload) == w * h
+
+
+def test_rotated_map_origin_rotates_frontier_coordinates():
+    data = [-1] * 100
+    for r in range(2, 8):
+        for c in range(2, 8):
+            data[r*10+c] = 0
+    grid = _make_grid(10, 10, data, 0.1)
+    original = find_frontier_clusters(grid, min_cluster_size=1, clearance_cells=0)
+    grid.info.origin.orientation.z = math.sin(math.pi/4)
+    grid.info.origin.orientation.w = math.cos(math.pi/4)
+    rotated = find_frontier_clusters(grid, min_cluster_size=1, clearance_cells=0)
+    for (x, y, _), (rx, ry, _) in zip(original, rotated):
+        assert abs(rx - (-1 - (y + 1))) < 1e-6
+        assert abs(ry - (-1 + (x + 1))) < 1e-6
