@@ -1,0 +1,321 @@
+{
+  "condition": "Both_concurrent_run2",
+  "start_utc": "2026-10-27T18:50:43.538663+00:00",
+  "end_utc": "2026-10-27T18:52:43.540277+00:00",
+  "target_duration_s": 120.0,
+  "actual_duration_s": 120.0017,
+  "topics": {
+    "/camera/camera/color/image_raw": {
+      "message_count": 3586,
+      "duration_seconds": 119.9843,
+      "received_rate_hz": 29.879,
+      "nominal_rate_hz": 30.0,
+      "frames": [
+        "camera_color_optical_frame"
+      ],
+      "inter_arrival_ms": {
+        "count": 3585,
+        "min": 10.207,
+        "p25": 32.611,
+        "p50": 33.284,
+        "p75": 34.12,
+        "p95": 40.273,
+        "p99": 45.492,
+        "max": 68.131,
+        "mean": 33.468,
+        "std": 3.936
+      },
+      "stamp_interval_ms": {
+        "count": 3585,
+        "min": 33.334,
+        "p25": 33.348,
+        "p50": 33.348,
+        "p75": 33.349,
+        "p95": 33.35,
+        "p99": 34.442,
+        "max": 66.697,
+        "mean": 33.468,
+        "std": 1.587
+      },
+      "stamp_anomalies": {
+        "zero_timestamps": 0,
+        "repeated_timestamps": 0,
+        "nonmonotonic_timestamps": 0,
+        "future_timestamps": 0,
+        "clock_domain_note": "Valid"
+      },
+      "header_stamp_age_ms": {
+        "count": 3586,
+        "min": 40.361,
+        "p25": 46.358,
+        "p50": 47.045,
+        "p75": 47.942,
+        "p95": 53.827,
+        "p99": 57.932,
+        "max": 70.603,
+        "mean": 47.681,
+        "std": 2.628
+      },
+      "estimated_missing_messages": 8
+    },
+    "/camera/camera/depth/image_rect_raw": {
+      "message_count": 3593,
+      "duration_seconds": 119.9848,
+      "received_rate_hz": 29.937,
+      "nominal_rate_hz": 30.0,
+      "frames": [
+        "camera_depth_optical_frame"
+      ],
+      "inter_arrival_ms": {
+        "count": 3592,
+        "min": 14.406,
+        "p25": 32.54,
+        "p50": 33.285,
+        "p75": 34.13,
+        "p95": 40.0,
+        "p99": 44.126,
+        "max": 56.483,
+        "mean": 33.403,
+        "std": 3.535
+      },
+      "stamp_interval_ms": {
+        "count": 3592,
+        "min": 33.334,
+        "p25": 33.348,
+        "p50": 33.348,
+        "p75": 33.349,
+        "p95": 33.35,
+        "p99": 34.442,
+        "max": 66.695,
+        "mean": 33.403,
+        "std": 0.597
+      },
+      "stamp_anomalies": {
+        "zero_timestamps": 0,
+        "repeated_timestamps": 0,
+        "nonmonotonic_timestamps": 0,
+        "future_timestamps": 0,
+        "clock_domain_note": "Valid"
+      },
+      "header_stamp_age_ms": {
+        "count": 3593,
+        "min": 41.947,
+        "p25": 48.933,
+        "p50": 49.72,
+        "p75": 50.676,
+        "p95": 55.944,
+        "p99": 59.901,
+        "max": 72.318,
+        "mean": 50.265,
+        "std": 2.559
+      },
+      "estimated_missing_messages": 1
+    },
+    "/scan": {
+      "message_count": 1202,
+      "duration_seconds": 119.9884,
+      "received_rate_hz": 10.009,
+      "nominal_rate_hz": 10.0,
+      "frames": [
+        "laser"
+      ],
+      "inter_arrival_ms": {
+        "count": 1201,
+        "min": 87.818,
+        "p25": 99.408,
+        "p50": 99.96,
+        "p75": 100.32,
+        "p95": 104.101,
+        "p99": 107.642,
+        "max": 112.698,
+        "mean": 99.907,
+        "std": 2.402
+      },
+      "stamp_interval_ms": {
+        "count": 1201,
+        "min": 97.114,
+        "p25": 99.82,
+        "p50": 99.99,
+        "p75": 100.116,
+        "p95": 100.544,
+        "p99": 101.453,
+        "max": 102.74,
+        "mean": 99.908,
+        "std": 0.544
+      },
+      "stamp_anomalies": {
+        "zero_timestamps": 0,
+        "repeated_timestamps": 0,
+        "nonmonotonic_timestamps": 0,
+        "future_timestamps": 0,
+        "clock_domain_note": "Valid"
+      },
+      "header_stamp_age_ms": {
+        "count": 1202,
+        "min": 97.718,
+        "p25": 100.407,
+        "p50": 100.698,
+        "p75": 103.314,
+        "p95": 109.052,
+        "p99": 111.238,
+        "max": 115.368,
+        "mean": 102.227,
+        "std": 3.046
+      },
+      "estimated_missing_messages": 0
+    },
+    "/camera/camera/aligned_depth_to_color/image_raw": {
+      "message_count": 3589,
+      "duration_seconds": 119.9507,
+      "received_rate_hz": 29.912,
+      "nominal_rate_hz": 30.0,
+      "frames": [
+        "camera_color_optical_frame"
+      ],
+      "inter_arrival_ms": {
+        "count": 3588,
+        "min": 16.753,
+        "p25": 32.752,
+        "p50": 33.319,
+        "p75": 33.964,
+        "p95": 37.518,
+        "p99": 44.179,
+        "max": 73.114,
+        "mean": 33.431,
+        "std": 2.965
+      },
+      "stamp_interval_ms": {
+        "count": 3588,
+        "min": 33.334,
+        "p25": 33.348,
+        "p50": 33.348,
+        "p75": 33.349,
+        "p95": 33.35,
+        "p99": 34.442,
+        "max": 66.696,
+        "mean": 33.43,
+        "std": 1.132
+      },
+      "stamp_anomalies": {
+        "zero_timestamps": 0,
+        "repeated_timestamps": 0,
+        "nonmonotonic_timestamps": 0,
+        "future_timestamps": 0,
+        "clock_domain_note": "Valid"
+      },
+      "header_stamp_age_ms": {
+        "count": 3589,
+        "min": 37.21,
+        "p25": 42.042,
+        "p50": 42.539,
+        "p75": 43.289,
+        "p95": 46.208,
+        "p99": 52.827,
+        "max": 59.139,
+        "mean": 42.939,
+        "std": 2.004
+      },
+      "estimated_missing_messages": 4
+    }
+  },
+  "tegrastats_summary": {
+    "ram_used_mb": {
+      "min": 3077.0,
+      "p50": 3129.0,
+      "p95": 3131.0,
+      "max": 3131.0,
+      "mean": 3127.953020134228
+    },
+    "swap_used_mb": {
+      "min": 330.0,
+      "p50": 330.0,
+      "p95": 330.0,
+      "max": 330.0,
+      "mean": 330.0
+    },
+    "vdd_in_curr_mw": {
+      "min": 5567.0,
+      "p50": 6041.0,
+      "p95": 6041.0,
+      "max": 6259.0,
+      "mean": 6023.228187919463
+    },
+    "vdd_cpu_gpu_curr_mw": {
+      "min": 749.0,
+      "p50": 833.0,
+      "p95": 872.0,
+      "max": 1067.0,
+      "mean": 851.7852348993289
+    },
+    "vdd_soc_curr_mw": {
+      "min": 1500.0,
+      "p50": 1547.0,
+      "p95": 1550.0,
+      "max": 1550.0,
+      "mean": 1546.9597315436242
+    },
+    "temp_cpu_c": {
+      "min": 53.125,
+      "p50": 53.5,
+      "p95": 53.8622,
+      "max": 53.968,
+      "mean": 53.496315436241616
+    },
+    "temp_gpu_c": {
+      "min": 52.156,
+      "p50": 52.5,
+      "p95": 52.75,
+      "max": 52.843,
+      "mean": 52.491013422818796
+    },
+    "temp_soc0_c": {
+      "min": 52.968,
+      "p50": 53.312,
+      "p95": 53.593,
+      "max": 53.718,
+      "mean": 53.32242281879195
+    },
+    "temp_tj_c": {
+      "min": 53.375,
+      "p50": 53.656,
+      "p95": 53.9246,
+      "max": 54.093,
+      "mean": 53.673906040268456
+    },
+    "gpu_util_pct": {
+      "min": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0.0,
+      "mean": 0.0
+    },
+    "cpu_util_avg_pct": {
+      "min": 18.333333333333332,
+      "p50": 24.833333333333332,
+      "p95": 26.666666666666668,
+      "max": 36.5,
+      "mean": 24.913870246085015
+    },
+    "cpu_util_max_pct": {
+      "min": 20.0,
+      "p50": 39.0,
+      "p95": 48.0,
+      "max": 52.0,
+      "mean": 39.4496644295302
+    },
+    "cpu_freq_avg_mhz": {
+      "min": 729.0,
+      "p50": 729.0,
+      "p95": 1395.0,
+      "max": 1395.0,
+      "mean": 799.7438478747205
+    },
+    "cpu_freq_max_mhz": {
+      "min": 729.0,
+      "p50": 729.0,
+      "p95": 1728.0,
+      "max": 1728.0,
+      "mean": 870.3154362416108
+    }
+  }
+}

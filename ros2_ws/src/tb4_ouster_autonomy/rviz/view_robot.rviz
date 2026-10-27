@@ -65,7 +65,7 @@ Visualization Manager:
       Min Relative Partner: ""
       Name: LaserScan
       Position Tolerance: 0.1
-      Queue Size: 10
+      Queue Size: 50
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.04

@@ -98,10 +98,21 @@ Autonomous mapping (includes an explicitly requested undock in the wrapper) and 
 ./scripts/run_autonomous_navigation.sh [optional_map_yaml]
 ```
 
-The default map is `~/maps/arena_map.yaml`. Existing maps are backed up before mapping; saves go to a user-owned directory. Checkpoints occur every 20 seconds when a map is available. Shutdown attempts a final save, but file IO and abrupt power loss can still prevent it. Navigation requires a suitable map and an AMCL initial pose, for example through RViz:
+The default map is `~/maps/arena_map.yaml`. Existing maps are backed up before mapping; saves go to a user-owned directory. Checkpoints occur every 20 seconds when a map is available. Shutdown attempts a final save, but file IO and abrupt power loss can still prevent it. Navigation requires a suitable map and an AMCL initial pose, for example through RViz (set `rviz:=false` when running headless over SSH and open RViz remotely on an offboard workstation):
 
 ```bash
 ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=$HOME/maps/arena_map.yaml
+```
+
+When operating headless with the Jetson in the cargo bay over SSH:
+```bash
+# Terminal 1 (on robot via SSH):
+source setup_env.sh
+ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=false
+
+# Terminal 2 (on robot via SSH for teleop):
+source setup_env.sh
+ros2 run tb4_ouster_autonomy teleop_keyboard
 ```
 
 After clearing a fault and verifying fresh telemetry:

@@ -1,0 +1,178 @@
+{
+  "manifest_version": "1.1.0",
+  "inspection_timestamp_utc": "2026-10-27T18:22:00Z",
+  "system": {
+    "hostname": "ivlaborin2-desktop",
+    "hardware_model": "NVIDIA Jetson Orin Nano Engineering Reference Developer Kit Super",
+    "architecture": "aarch64",
+    "soc_family": "tegra234 (Tegra Chip ID 0x23)",
+    "module_spec": "3767-300-0005-T.1-1-1-jetson-orin-nano-devkit-super-",
+    "cpu": "6-core ARM Cortex-A78AE (Cluster of 6 cores, 384 KiB L1d, 384 KiB L1i, 1.5 MiB L2, 4 MiB L3)",
+    "cpu_configured_max_freq_hz": {
+      "MAXN_SUPER (ID 2)": 1728000000,
+      "15W (ID 0)": 1497600000
+    },
+    "cpu_sampled_idle_freq_khz": [1190400, 1190400, 1190400, 1190400, 729600, 729600],
+    "memory_total_mb": 7620,
+    "memory_available_idle_mb": 4983,
+    "swap": {
+      "total_mb": 24290,
+      "breakdown": [
+        {"type": "file", "path": "/swapfile", "device": "nvme0n1p1", "size_mb": 20480, "priority": -2},
+        {"type": "zram", "device": "/dev/zram0", "size_mb": 635, "priority": 5},
+        {"type": "zram", "device": "/dev/zram1", "size_mb": 635, "priority": 5},
+        {"type": "zram", "device": "/dev/zram2", "size_mb": 635, "priority": 5},
+        {"type": "zram", "device": "/dev/zram3", "size_mb": 635, "priority": 5},
+        {"type": "zram", "device": "/dev/zram4", "size_mb": 635, "priority": 5},
+        {"type": "zram", "device": "/dev/zram5", "size_mb": 635, "priority": 5}
+      ],
+      "note": "20 GB swapfile resides on ext4 root partition nvme0n1p1, supplemented by 6 compressed in-RAM zram partitions (total 3.7 GB)."
+    },
+    "os": "Ubuntu 22.04.5 LTS (Jammy Jellyfish)",
+    "kernel": "5.15.148-tegra #1 SMP PREEMPT Thu Sep 18 15:08:33 PDT 2025 aarch64",
+    "jetpack_l4t": "R36.4.7 (GCID 42132812, DATE: Thu Sep 18 22:54:44 UTC 2025)",
+    "nvpmodel_current_mode": "MAXN_SUPER (ID 2)",
+    "nvpmodel_available_modes": {
+      "0": "15W",
+      "1": "25W",
+      "2": "MAXN_SUPER",
+      "3": "7W"
+    },
+    "idle_thermal_state_c": {
+      "cpu": 52.2,
+      "gpu": 51.5,
+      "soc0": 52.1,
+      "soc1": 52.4,
+      "soc2": 50.1,
+      "tj": 52.4
+    },
+    "idle_power_telemetry_mw": {
+      "vdd_in": 5409,
+      "vdd_cpu_gpu_cv": 670,
+      "vdd_soc": 1500,
+      "measurement_boundary": "Module carrier input supply (VDD_IN). Includes module SoC, memory, Carrier USB host controller, but does not measure external peripheral self-consumption independently."
+    },
+    "disk_space": {
+      "filesystem": "/dev/nvme0n1p1",
+      "mount": "/",
+      "total_gb": 915.0,
+      "used_gb": 355.0,
+      "avail_gb": 514.0,
+      "use_pct": "41%"
+    }
+  },
+  "peripherals": {
+    "realsense_camera": {
+      "model": "Intel RealSense D455",
+      "serial": "313522300833",
+      "firmware": "5.13.0.55",
+      "usb_bus": "Bus 002 Port 1 Dev 3",
+      "usb_speed": "5000M (SuperSpeed USB 3.2 Gen 1)",
+      "requested_profiles": {
+        "color": "640x480 @ 30 FPS, RGB8",
+        "depth": "640x480 @ 30 FPS, Z16",
+        "aligned_depth": "Enabled (align_depth.enable:=True)"
+      },
+      "clock_domain_analysis": "The sensor ASIC reports hardware clock (HARDWARE_CLOCK). realsense2_camera linearly regresses hardware clock onto host CLOCK_REALTIME, publishing header stamps in host UTC epoch. Inter-arrival gaps reflect reception timing; header delta reflects sensor frame acquisition intervals."
+    },
+    "slamtec_lidar": {
+      "model": "SLAMTEC RPLIDAR S2",
+      "serial": "89C6E386C8E69FC2B8EB9CF409194B71",
+      "firmware": "1.02",
+      "hardware_rev": "18",
+      "device_path": "/dev/ttyUSB0",
+      "symlink": "/dev/rplidar",
+      "permissions": "0666 (crw-rw-rw- root:dialout)",
+      "usb_bridge": "Silicon Labs CP2102N USB to UART Bridge (Bus 001 Dev 5, 12M Full-Speed)",
+      "driver_package": "rplidar_ros (version 2.0.0)",
+      "baud_rate": 1000000,
+      "scan_mode": "DenseBoost",
+      "sample_rate_khz": 32.0,
+      "nominal_scan_freq_hz": 10.0,
+      "clock_domain_analysis": "Stamps are assigned via node->now() (host system clock) upon complete scan packet assembly."
+    },
+    "robot_base_interface": {
+      "interface": "usb1",
+      "ip": "192.168.186.3/24",
+      "create3_ip": "192.168.186.2",
+      "state": "UP / CONNECTED",
+      "ping_latency_ms": 2.25,
+      "base_telemetry_verified": {
+        "is_docked": false,
+        "battery_voltage_v": 15.02,
+        "battery_soc_pct": 64.0,
+        "battery_current_a": -0.25,
+        "battery_temp_c": 34.8,
+        "odometry_rate_hz": 20.05,
+        "linear_speed_mps": 0.0,
+        "angular_speed_radps": 0.0,
+        "imu_rate_hz": 100.02,
+        "hazard_detection_rate_hz": 62.47,
+        "clock_sync_offset_ms": 0.61,
+        "latest_stamp_age_ms": 37.0
+      },
+      "note": "Create 3 base powered on and connected via USB-C RNDIS. Odometry confirms vehicle is stationary."
+    }
+  },
+  "software_environments": {
+    "host_environment": {
+      "python_version": "3.10.12",
+      "numpy_version": "1.21.5",
+      "scipy_version": "1.8.0",
+      "pytorch_status": "Absent in host system Python (ModuleNotFoundError)",
+      "cuda_status": "nvidia-l4t-cuda 36.4.7 runtime present (/usr/lib/aarch64-linux-gnu/libcuda.so); nvcc/toolkit absent",
+      "tensorrt_status": "Absent in host system Python",
+      "ros2_distribution": "Humble Hawksbill (/opt/ros/humble)",
+      "ros2_packages": {
+        "realsense2_camera": "4.58.4-1jammy.20260916.045339",
+        "librealsense2": "2.58.4-1jammy.20260831.021400",
+        "rplidar_ros": "2.0.0"
+      },
+      "rmw_implementation": "rmw_fastrtps_cpp",
+      "dds_profile": "config/fastdds_create3.xml"
+    },
+    "container_gpu_environment": {
+      "image_tag": "isaac_ros_dev-aarch64:latest",
+      "image_id": "6bb2d422f1be",
+      "cuda_version": "12.6.11",
+      "pytorch_version": "2.5.0a0+872d972e41.nv24.08",
+      "cuda_available": true,
+      "device_name": "NVIDIA Orin (nvgpu)",
+      "note": "Verified working containerized GPU environment on this Jetson Nano Super. Enables true CUDA PyTorch FP32/FP16 inference benchmarking without modifying host packages."
+    }
+  },
+  "ros_topic_qos_verified": {
+    "/camera/camera/color/image_raw": {
+      "type": "sensor_msgs/msg/Image",
+      "publisher_qos": {"reliability": "RELIABLE", "durability": "TRANSIENT_LOCAL", "depth": "UNKNOWN"},
+      "subscriber_qos_compatible": {"reliability": "RELIABLE", "durability": "VOLATILE", "depth": 10}
+    },
+    "/camera/camera/aligned_depth_to_color/image_raw": {
+      "type": "sensor_msgs/msg/Image",
+      "publisher_qos": {"reliability": "RELIABLE", "durability": "TRANSIENT_LOCAL", "depth": "UNKNOWN"},
+      "subscriber_qos_compatible": {"reliability": "RELIABLE", "durability": "VOLATILE", "depth": 10}
+    },
+    "/scan": {
+      "type": "sensor_msgs/msg/LaserScan",
+      "publisher_qos": {"reliability": "RELIABLE", "durability": "VOLATILE", "depth": "UNKNOWN"},
+      "subscriber_qos_compatible": {"reliability": "RELIABLE", "durability": "VOLATILE", "depth": 10}
+    }
+  },
+  "git": {
+    "repository_path": "/home/ivlaborin2/TurtleBot4Lite_OusterOS0",
+    "branch": "feature/realsense-rplidar-navigation",
+    "head_commit": "ace9366 Merge pull request #3 from Robin-Lange/fix/github-actions",
+    "dirty_files": [
+      "arena_map.pgm (modified)",
+      "arena_map.yaml (modified)",
+      "config/fastdds_create3.xml (modified: discovery lease tag update)",
+      "ros2_ws/src/tb4_ouster_autonomy/launch/perception.launch.py (modified: parameter wrapping, pointcloud allow_no_texture_points, initial_reset)",
+      "ros2_ws/src/tb4_ouster_autonomy/tb4_ouster_autonomy/components.py (modified: safety config timeout parameters)"
+    ],
+    "untracked_files": [
+      "arena_map.prev.pgm",
+      "arena_map.prev.yaml",
+      "experiments/"
+    ]
+  }
+}

@@ -24,6 +24,9 @@ Reviewed source: `feature/realsense-rplidar-navigation` at `2650ae7b21ee9617734f
 | CI only runs for `main`, and rosdep uses `-r` | Feature branch is untested; dependency errors may be hidden | Run every branch/PR, fail on unresolved dependencies, and exercise final velocity output in Humble |
 | `ament_python` is declared as a package dependency | Strict rosdep cannot resolve it | Keep `ament_python` as build type and declare `python3-setuptools` as build dependency |
 | README describes sub-millimeter mapping, guaranteed latency/inference, hardware NVENC on Nano, and a VLA watchdog that is absent | Setup guide overstates accuracy and implemented behavior | Remove unsupported claims; label offboard learned control as future work. Nano software encoding follows NVIDIA guidance |
+| Collision Monitor `base_shift_correction: true` looks up static sensor mounts (`laser` / `camera_link` to `base_link`) through `odom` | Startup lag or odometry packet gaps trigger `"odom" does not exist` lookup errors and stop the robot | Set `base_shift_correction: false`, `source_timeout: 2.0`, and `transform_tolerance: 1.0` so static transforms resolve immediately |
+| FastDDS `useBuiltinTransports: false` disabled Shared Memory (SHM) without declaring it, routing local point clouds over a 64KB UDP loopback buffer | Point clouds (~1 MB) overflow UDP socket buffers, dropping packets, odometry, and dynamic TF | Add `shm_transport` for zero-copy intra-Jetson node communication and increase UDP buffer size to 208 KB (matching system max) |
+| RealSense driver defaults log power-line frequency range errors and missing texture stream profile warnings | Console noise and unaligned hardware clock domains | Set `rgb_camera.power_line_frequency: 2` (60 Hz), `pointcloud.stream_profile: 2` (Color), and enable `global_time_enabled` |
 
 ## Architecture decision
 

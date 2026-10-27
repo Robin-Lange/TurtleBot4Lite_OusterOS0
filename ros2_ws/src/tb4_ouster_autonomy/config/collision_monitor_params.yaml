@@ -5,9 +5,9 @@ collision_monitor:
     odom_frame_id: odom
     cmd_vel_in_topic: /cmd_vel_safe
     cmd_vel_out_topic: /cmd_vel
-    transform_tolerance: 0.5
-    source_timeout: 0.75
-    base_shift_correction: true
+    transform_tolerance: 1.0
+    source_timeout: 2.0
+    base_shift_correction: false
     stop_pub_timeout: 1.0
     polygons:
     - PolygonStop

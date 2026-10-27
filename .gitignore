@@ -11,3 +11,5 @@ overnight_summary.json
 ros2_ws/overnight_summary.json
 ros2_ws/overnight_test.log
 169.254.97-metadata.json
+*.prev.pgm
+*.prev.yaml

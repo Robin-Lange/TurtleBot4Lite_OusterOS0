@@ -49,14 +49,14 @@ class World:
 @dataclass(frozen=True)
 class SafetyConfig:
     publish_rate_hz: float = 20.0
-    cmd_timeout_s: float = 0.35
-    odom_timeout_s: float = 0.5
-    tf_timeout_s: float = 0.5
-    scan_timeout_s: float = 0.5
-    cloud_timeout_s: float = 0.75
-    dock_timeout_s: float = 2.0
-    hazard_timeout_s: float = 1.0
-    future_tolerance_s: float = 0.1
+    cmd_timeout_s: float = 0.5
+    odom_timeout_s: float = 1.0
+    tf_timeout_s: float = 1.0
+    scan_timeout_s: float = 1.0
+    cloud_timeout_s: float = 1.0
+    dock_timeout_s: float = 4.0
+    hazard_timeout_s: float = 1.5
+    future_tolerance_s: float = 0.25
     deadman_timeout_s: float = 0.5
     max_linear_speed: float = 0.15
     max_angular_speed: float = 0.50

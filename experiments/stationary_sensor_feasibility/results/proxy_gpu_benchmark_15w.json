@@ -1,0 +1,131 @@
+{
+  "timestamp_utc": "2026-10-27T22:00:40Z",
+  "power_mode_label": "15W_MODE",
+  "total_parameters": 49598,
+  "parameter_breakdown": {
+    "conv1.weight": 576,
+    "conv1.bias": 16,
+    "conv2.weight": 4608,
+    "conv2.bias": 32,
+    "conv3.weight": 18432,
+    "conv3.bias": 64,
+    "gru.weight_ih_l0": 12288,
+    "gru.weight_hh_l0": 12288,
+    "gru.bias_ih_l0": 192,
+    "gru.bias_hh_l0": 192,
+    "head_state.weight": 256,
+    "head_state.bias": 4,
+    "head_cov.weight": 640,
+    "head_cov.bias": 10
+  },
+  "input_shape": [
+    1,
+    4,
+    128,
+    128
+  ],
+  "benchmarks": {
+    "fp32": {
+      "dtype": "float32",
+      "device": "cuda",
+      "max_throughput": {
+        "iterations": 1000,
+        "total_elapsed_s": 2.62,
+        "achieved_throughput_hz": 381.67,
+        "model_only_latency_ms": {
+          "p50": 2.187,
+          "p95": 3.483,
+          "p99": 4.311,
+          "mean": 2.408,
+          "min": 2.077,
+          "max": 5.853
+        },
+        "host_to_device_transfer_ms": {
+          "p50": 0.206,
+          "p95": 0.226,
+          "p99": 0.252,
+          "mean": 0.208
+        },
+        "total_step_latency_ms": {
+          "p50": 2.392,
+          "p95": 3.689,
+          "p99": 4.531,
+          "mean": 2.616
+        }
+      },
+      "paced_benchmark": {
+        "target_hz": 10.0,
+        "target_period_ms": 100.0,
+        "steps": 200,
+        "step_latency_ms": {
+          "p50": 5.197,
+          "p95": 5.957,
+          "p99": 7.268,
+          "mean": 5.176
+        },
+        "cycle_interval_ms": {
+          "p50": 100.0,
+          "p95": 100.201,
+          "p99": 100.259
+        }
+      },
+      "gpu_memory_telemetry": {
+        "allocated_mb": 8.82,
+        "max_allocated_mb": 17.36,
+        "reserved_mb": 24.0,
+        "max_reserved_mb": 24.0
+      }
+    },
+    "fp16": {
+      "dtype": "float16",
+      "device": "cuda",
+      "max_throughput": {
+        "iterations": 1000,
+        "total_elapsed_s": 2.4683,
+        "achieved_throughput_hz": 405.14,
+        "model_only_latency_ms": {
+          "p50": 2.093,
+          "p95": 3.573,
+          "p99": 4.321,
+          "mean": 2.297,
+          "min": 1.969,
+          "max": 5.321
+        },
+        "host_to_device_transfer_ms": {
+          "p50": 0.165,
+          "p95": 0.182,
+          "p99": 0.202,
+          "mean": 0.167
+        },
+        "total_step_latency_ms": {
+          "p50": 2.258,
+          "p95": 3.761,
+          "p99": 4.493,
+          "mean": 2.464
+        }
+      },
+      "paced_benchmark": {
+        "target_hz": 10.0,
+        "target_period_ms": 100.0,
+        "steps": 200,
+        "step_latency_ms": {
+          "p50": 5.092,
+          "p95": 6.994,
+          "p99": 7.589,
+          "mean": 5.306
+        },
+        "cycle_interval_ms": {
+          "p50": 100.0,
+          "p95": 100.224,
+          "p99": 100.253
+        }
+      },
+      "gpu_memory_telemetry": {
+        "allocated_mb": 8.47,
+        "max_allocated_mb": 17.36,
+        "reserved_mb": 24.0,
+        "max_reserved_mb": 24.0
+      }
+    }
+  }
+}

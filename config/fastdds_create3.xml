@@ -3,10 +3,14 @@
     <profiles>
         <transport_descriptors>
             <transport_descriptor>
+                <transport_id>shm_transport</transport_id>
+                <type>SHM</type>
+            </transport_descriptor>
+            <transport_descriptor>
                 <transport_id>udp_transport</transport_id>
                 <type>UDPv4</type>
-                <sendBufferSize>65536</sendBufferSize>
-                <receiveBufferSize>65536</receiveBufferSize>
+                <sendBufferSize>212992</sendBufferSize>
+                <receiveBufferSize>212992</receiveBufferSize>
                 <maxMessageSize>8192</maxMessageSize>
                 <interfaceWhiteList>
                     <address>192.168.186.3</address>
@@ -19,15 +23,16 @@
         <participant profile_name="domainparticipant_profile_name" is_default_profile="true">
             <rtps>
                 <userTransports>
+                    <transport_id>shm_transport</transport_id>
                     <transport_id>udp_transport</transport_id>
                 </userTransports>
                 <useBuiltinTransports>false</useBuiltinTransports>
                 <builtin>
                     <discovery_config>
-                        <leaseDuration_announcementperiod>
+                        <leaseAnnouncement>
                             <sec>0</sec>
                             <nanosec>250000000</nanosec>
-                        </leaseDuration_announcementperiod>
+                        </leaseAnnouncement>
                         <initialAnnouncements>
                             <count>15</count>
                             <period>

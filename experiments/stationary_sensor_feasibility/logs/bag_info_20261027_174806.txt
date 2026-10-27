@@ -1,0 +1,18 @@
+
+Files:             stationary_sensors_20261027_174806_0.db3
+                   stationary_sensors_20261027_174806_1.db3
+                   stationary_sensors_20261027_174806_2.db3
+                   stationary_sensors_20261027_174806_3.db3
+                   stationary_sensors_20261027_174806_4.db3
+Bag size:          1.9 GiB
+Storage id:        sqlite3
+Duration:          43.213931705s
+Start:             Oct 27 2026 17:48:17.308655134 (1793137697.308655134)
+End:               Oct 27 2026 17:49:00.522586839 (1793137740.522586839)
+Messages:          4314
+Topic information: Topic: /camera/camera/color/image_raw | Type: sensor_msgs/msg/Image | Count: 1293 | Serialization Format: cdr
+                   Topic: /camera/camera/aligned_depth_to_color/image_raw | Type: sensor_msgs/msg/Image | Count: 1291 | Serialization Format: cdr
+                   Topic: /tf_static | Type: tf2_msgs/msg/TFMessage | Count: 4 | Serialization Format: cdr
+                   Topic: /camera/camera/color/camera_info | Type: sensor_msgs/msg/CameraInfo | Count: 1293 | Serialization Format: cdr
+                   Topic: /scan | Type: sensor_msgs/msg/LaserScan | Count: 433 | Serialization Format: cdr
+

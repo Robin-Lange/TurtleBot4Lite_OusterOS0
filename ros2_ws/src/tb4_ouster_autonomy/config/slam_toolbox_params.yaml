@@ -13,6 +13,7 @@ slam_toolbox:
     map_frame: map
     base_frame: base_link
     scan_topic: /scan
+    scan_queue_size: 50
     use_map_saver: true
     mode: mapping
 
@@ -25,7 +26,7 @@ slam_toolbox:
     min_laser_range: 0.2
     max_laser_range: 20.0
     minimum_time_interval: 0.1      # Max 10 Hz processing
-    transform_tolerance: 0.5
+    transform_tolerance: 1.0
     correlation_search_space_dimension: 0.5
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.1
