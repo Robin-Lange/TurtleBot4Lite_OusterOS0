@@ -21,4 +21,8 @@ elif ip -4 addr show 2>/dev/null | grep -q "192.168.0.10/"; then
 else
     export FASTRTPS_DEFAULT_PROFILES_FILE="${SCRIPT_DIR}/config/fastdds_create3.xml"
     echo "[TB4 Lite] Robot Orin Nano Environment loaded: ROS_DOMAIN_ID=0, Unicast FastDDS (Create3 + AGX)."
+    # Ensure Create 3 USB interface is active on 192.168.186.3
+    if ! ip -4 addr show dev usb1 2>/dev/null | grep -q "192.168.186.3"; then
+        nmcli connection up create3-usb1 >/dev/null 2>&1 || true
+    fi
 fi

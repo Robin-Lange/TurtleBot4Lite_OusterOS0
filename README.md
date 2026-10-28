@@ -106,11 +106,16 @@ ros2 launch tb4_ouster_autonomy robot.launch.py mode:=navigate rviz:=true map:=$
 
 When operating headless with the Jetson in the cargo bay over SSH:
 ```bash
+# Connect to robot Jetson over Wi-Fi (default IP: 192.168.0.151)
+ssh ivlaborin2@192.168.0.151
+
 # Terminal 1 (on robot via SSH):
+cd ~/TurtleBot4Lite_OusterOS0
 source setup_env.sh
 ros2 launch tb4_ouster_autonomy robot.launch.py mode:=map rviz:=false
 
 # Terminal 2 (on robot via SSH for teleop):
+cd ~/TurtleBot4Lite_OusterOS0
 source setup_env.sh
 ros2 run tb4_ouster_autonomy teleop_keyboard
 ```
