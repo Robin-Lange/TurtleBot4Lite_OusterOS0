@@ -78,6 +78,13 @@ python3 /home/ivlaborin2/TurtleBot4Lite_OusterOS0/experiments/stationary_sensor_
 ```
 
 #### GPU Benchmark (Containerized PyTorch 2.5 + CUDA 12.6):
+- **Container Image**: `isaac_ros_dev-aarch64:latest`
+- **Container Image ID**: `6bb2d422f1be`
+- **Image Digest**: `sha256:6bb2d422f1be6ac3ee408ac20837de532e8087fd2bc6898a043ead44b4d96d1e`
+- **Execution Context**: Executed in an isolated container process (not concurrently with live ROS sensor drivers).
+- **Timing Boundary**: Measures host-to-device tensor transfer + model forward pass (both bounded by `torch.cuda.synchronize()`). Does not include ROS deserialization or image resizing from 640x480 to 128x128.
+- **Memory Metric**: Reports peak active CUDA memory allocated (`torch.cuda.max_memory_allocated()`).
+
 ```bash
 docker run --rm --runtime nvidia \
     -v /home/ivlaborin2/TurtleBot4Lite_OusterOS0/experiments/stationary_sensor_feasibility:/workspace \
