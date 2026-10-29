@@ -60,6 +60,7 @@ jobs:
         run: |
           python -m pytest -q \
             ros2_ws/src/tb4_ouster_autonomy/test/test_systems.py \
+            ros2_ws/src/tb4_ouster_autonomy/test/test_visibility.py \
             ros2_ws/src/tb4_ouster_autonomy/test/test_configuration.py \
             ros2_ws/src/tb4_ouster_autonomy/test/test_autonomous_explorer.py \
             scripts/ci/test_report_tests.py \

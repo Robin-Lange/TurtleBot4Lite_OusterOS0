@@ -24,6 +24,7 @@ setup(
     entry_points={
         "console_scripts": [
             "stationary_diagnostics = tb4_ouster_autonomy.stationary_diagnostics:main",
+            "visibility_monitor = tb4_ouster_autonomy.visibility_monitor:main",
             "cloud_filter = tb4_ouster_autonomy.cloud_filter:main",
             "bumper_contact_cloud = tb4_ouster_autonomy.bumper_contact_cloud:main",
             "safety_authority_gate = tb4_ouster_autonomy.safety_authority_gate:main",
