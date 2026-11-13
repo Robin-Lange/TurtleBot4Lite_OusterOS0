@@ -24,7 +24,7 @@ collision_monitor:
       - -0.24
       - 0.24
       action_type: stop
-      max_points: 0
+      max_points: 3
       visualize: true
       polygon_pub_topic: polygon_stop
       enabled: true
@@ -51,7 +51,7 @@ collision_monitor:
     pointcloud:
       type: pointcloud
       topic: /camera/cloud_filtered
-      min_height: 0.04
+      min_height: 0.07
       max_height: 1.5
       enabled: true
     scan:
