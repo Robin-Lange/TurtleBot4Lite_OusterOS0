@@ -27,6 +27,8 @@ slam_toolbox:
     max_laser_range: 20.0
     minimum_time_interval: 0.1      # Max 10 Hz processing
     transform_tolerance: 1.0
+    transform_timeout: 0.5
+    tf_buffer_duration: 30.0
     correlation_search_space_dimension: 0.5
     correlation_search_space_resolution: 0.01
     correlation_search_space_smear_deviation: 0.1
