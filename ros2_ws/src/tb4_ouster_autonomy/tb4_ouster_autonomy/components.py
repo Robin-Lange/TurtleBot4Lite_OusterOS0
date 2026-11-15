@@ -77,3 +77,58 @@ class Decision:
     reason: str
     source: str = "NONE"
     velocity: Velocity = Velocity()
+
+
+@dataclass(frozen=True)
+class VisibilityConfig:
+    """Heuristic thresholds for passive scan diagnostics, not control limits."""
+
+    range_jump_m: float = 0.75
+    max_edge_range_m: float = 6.0
+    max_neighbor_angle_rad: float = 0.05
+    min_finite_fraction: float = 0.5
+    timeout_s: float = 0.5
+    future_tolerance_s: float = 0.1
+
+    def __post_init__(self):
+        for name, value in vars(self).items():
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+        if self.min_finite_fraction > 1:
+            raise ValueError("min_finite_fraction must be <= 1")
+
+
+@dataclass(frozen=True)
+class VisibilityScan:
+    """One planar scan entity, expressed in its acquisition frame."""
+
+    ranges: tuple[float, ...]
+    angle_min: float
+    angle_max: float
+    angle_increment: float
+    range_min: float
+    range_max: float
+
+
+@dataclass(frozen=True)
+class VisibilityEdge:
+    beam_index: int
+    angle: float
+    near_range: float
+    far_range: float
+
+
+@dataclass(frozen=True)
+class VisibilityObservation:
+    beam_count: int
+    finite_count: int
+    full_circle: bool
+    resolution_supported: bool
+    edges: tuple[VisibilityEdge, ...]
+
+
+@dataclass(frozen=True)
+class VisibilityHealth:
+    state: str
+    reason: str
+    show_edges: bool = False

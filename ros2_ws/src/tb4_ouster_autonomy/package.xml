@@ -9,6 +9,8 @@
   <exec_depend>rclpy</exec_depend>
   <exec_depend>nav_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
+  <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>tf2_msgs</exec_depend>
   <exec_depend>irobot_create_msgs</exec_depend>
   <exec_depend>launch</exec_depend>
